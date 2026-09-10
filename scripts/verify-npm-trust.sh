@@ -69,6 +69,24 @@ if [ -z "$ID_TOKEN" ]; then
   exit 1
 fi
 
+# Print the claims this run presents, so a refusal can be compared against what the trusted
+# publisher on registry.npmjs.org is configured with instead of guessed at. The token is
+# signed, not secret, and these are the fields npm matches on.
+if command -v node >/dev/null 2>&1; then
+  node -e '
+    const [, payload] = process.argv[1].split(".");
+    const claims = JSON.parse(
+      Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"),
+    );
+    for (const key of [
+      "repository", "repository_id", "repository_owner", "repository_owner_id",
+      "workflow_ref", "job_workflow_ref", "environment", "ref", "ref_type", "event_name",
+    ]) {
+      console.log(`  ${key}: ${claims[key] ?? "(absent)"}`);
+    }
+  ' "$ID_TOKEN"
+fi
+
 # Claim values reported on failure, so the missing entry can be created without guessing.
 REPOSITORY="${GITHUB_REPOSITORY:-unknown}"
 WORKFLOW_FILE="${GITHUB_WORKFLOW_REF:-unknown}"
@@ -76,19 +94,27 @@ WORKFLOW_FILE="${WORKFLOW_FILE%%@*}"
 WORKFLOW_FILE="${WORKFLOW_FILE##*/}"
 ENVIRONMENT="${TRUSTED_PUBLISHER_ENVIRONMENT:-release}"
 
+TMP_BODY="$(mktemp)"
+trap 'rm -f "$TMP_BODY"' EXIT
+
 failed=()
 unreachable=()
 while IFS= read -r p; do
   [ -n "$p" ] || continue
-  escaped="$(jq -rn --arg s "$p" '$s|@uri')"
-  body="$(curl -s -X POST -H "Authorization: Bearer $ID_TOKEN" \
-    "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$escaped" || true)"
+  # Escape exactly as npm does (its `escapedName`): only the slash, with the `@` left literal.
+  escaped="${p//\//%2f}"
+  status="$(curl -s -o "$TMP_BODY" -w '%{http_code}' -X POST \
+    -H "Authorization: Bearer $ID_TOKEN" \
+    "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$escaped" || echo 000)"
+  body="$(cat "$TMP_BODY" 2>/dev/null || true)"
   if [ -n "$(jq -r '.token // empty' <<< "$body" 2>/dev/null)" ]; then
     echo "  $p: trusted publisher OK"
   elif [ -n "$(jq -r '.message // empty' <<< "$body" 2>/dev/null)" ]; then
     # A JSON error body is the registry refusing the exchange: the trusted publisher entry
-    # is missing or its claims do not match this run.
-    echo "  $p: exchange refused -- $(jq -r '.message' <<< "$body")"
+    # is missing or its claims do not match this run. The status and raw body are printed
+    # because a refusal is only actionable once the registry's own wording is visible.
+    echo "  $p: exchange refused (HTTP $status) -- $(jq -r '.message' <<< "$body")"
+    echo "    url: https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$escaped"
     failed+=("$p")
   else
     # Empty or non-JSON response: the registry was not reached. Same verdict, different fix.

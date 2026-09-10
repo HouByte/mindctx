@@ -14,13 +14,13 @@
 //!   status) is already folded into the page text by the tools.
 //! - [`WireMode::Envelope`]: the complete envelope JSON for machine consumers (HTTP /
 //!   IDE lines). Not an LLM injection target, so its size is not budget-constrained;
-//!   the v3 envelope is the page plus its machine skeleton (`token_usage`/`terminal`/
+//!   the envelope is the page plus its machine skeleton (`token_usage`/`terminal`/
 //!   `skip_report`/`next_call`/`violations`) and carries no per-result duplication.
 //!
 //! Accounting (budget = wire): `token_usage.returned` is the exact o200k count of
 //! [`render`], re-verified against a full recount with `CountMismatch` / `OverBudget`
 //! hard errors (`budget::finish_wire`). The [`Envelope`] structure itself is untouched:
-//! versioned contract (v3), locked by `crates/tests/core/envelope_smoke.rs` and the
+//! contract, locked by `crates/tests/core/envelope_smoke.rs` and the
 //! inline shape literals in the envelope tests.
 
 use crate::envelope::Envelope;

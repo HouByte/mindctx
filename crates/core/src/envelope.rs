@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Output envelope — mindctx's external contract (v3).
+//! Output envelope — mindctx's external contract.
 //!
-//! Discipline: the envelope is versioned; the JSON shape is locked by the inline
-//! assertions in `crates/tests/core/envelope_smoke.rs` and the envelope unit tests
-//! below. Breaking field changes require an envelope version bump and synchronized
-//! updates to those locks in the same change; unknown JSON fields deserialize as
-//! ignored, so added fields never break old consumers.
+//! Discipline: the JSON shape is locked by the inline assertions in
+//! `crates/tests/core/envelope_smoke.rs` and the envelope unit tests below. A breaking
+//! field change must move those locks in the same change; unknown JSON fields deserialize
+//! as ignored, so added fields never break old consumers.
 //! `token_usage` teaches the model to control its spend; `next_call` makes "truncated"
 //! a resumable cursor rather than a dead end.
 
@@ -166,8 +165,8 @@ impl Envelope {
 mod tests {
     use super::*;
 
-    /// JSON shape of the v3 contract — field names and nested structure are the external
-    /// contract; breaking changes must bump the envelope version and move the locks.
+    /// JSON shape of the contract — field names and nested structure are the external
+    /// contract; a breaking change must move the locks in the same change.
     const DESIGN_EXAMPLE: &str = r#"{
         "text": "src/core/retrieve.rs\n42-pub fn handle()\n\n(Complete: 1 symbol shown.)",
         "token_usage": { "returned": 2380, "budget": 4000 },
@@ -190,9 +189,8 @@ mod tests {
         let e2: Envelope = serde_json::from_value(serde_json::to_value(&e).unwrap()).unwrap();
         assert_eq!(e, e2);
 
-        // Unknown fields deserialize as ignored: both future additions and retired
-        // pre-v3 fields (results/citations/kb_hits/...) never break parsing across a
-        // version boundary.
+        // Unknown fields deserialize as ignored, so both future additions and fields
+        // retired from the contract (results/citations/kb_hits/...) keep parsing.
         let with_extra: serde_json::Value = serde_json::from_str(
             r#"{ "token_usage": { "returned": 1 }, "results": [], "citations": [],
                  "kb_hits": [], "truncation_pointer": null, "future_field": true }"#,
@@ -201,7 +199,7 @@ mod tests {
         serde_json::from_value::<Envelope>(with_extra).unwrap();
     }
 
-    /// v3: `text`/`terminal`/`skip_report` must be absent — not null — when unset,
+    /// `text`/`terminal`/`skip_report` must be absent — not null — when unset,
     /// so the JSON shape consumers see carries no dead keys.
     #[test]
     fn optional_fields_absent_when_none() {
@@ -222,9 +220,9 @@ mod tests {
         assert_eq!(e.skip_report, None);
     }
 
-    /// v3 roundtrip: a fully populated envelope survives serialize → deserialize unchanged.
+    /// Roundtrip: a fully populated envelope survives serialize → deserialize unchanged.
     #[test]
-    fn v3_fields_roundtrip() {
+    fn fields_roundtrip() {
         let mut e = Envelope::empty(Some(4_000));
         e.token_usage.returned = 2380;
         e.truncated = true;

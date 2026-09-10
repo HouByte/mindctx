@@ -2,6 +2,10 @@
   "name": "mindctx",
   "version": "0.1.0",
   "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HouByte/mindctx.git"
+  },
   "bin": {
     "mindctx": "launcher.js"
   },

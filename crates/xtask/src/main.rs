@@ -534,7 +534,11 @@ fn npm_version_sync(
     let version = workspace_version(workspace_manifest)?;
     println!("workspace version: {}", version);
 
-    check_package_versions(packages_dir, &version)?;
+    check_package_versions(
+        packages_dir,
+        &version,
+        &workspace_repository(workspace_manifest)?,
+    )?;
 
     if dry_run {
         println!("plan: all package.json versions match workspace version");
@@ -550,7 +554,11 @@ fn npm_version_sync(
     stage_platform_bins(packages_dir, dist_dir)
 }
 
-fn check_package_versions(packages_dir: &Path, version: &str) -> Result<(), String> {
+fn check_package_versions(
+    packages_dir: &Path,
+    version: &str,
+    repository: &str,
+) -> Result<(), String> {
     let mut dirs: Vec<PathBuf> = fs::read_dir(packages_dir)
         .map_err(|e| format!("read {}: {}", e, packages_dir.display()))?
         .filter_map(|e| e.ok())
@@ -568,10 +576,26 @@ fn check_package_versions(packages_dir: &Path, version: &str) -> Result<(), Stri
             serde_json::from_str(&text).map_err(|e| format!("parse package.json: {}", e))?;
         let name = json["name"].as_str().unwrap_or("?").to_string();
         let found = json["version"].as_str().unwrap_or("?").to_string();
+        // npm enables provenance automatically when publishing from GitHub Actions for a
+        // public package, and the registry then rejects the publish unless repository.url
+        // names the repository the provenance was minted from. A package that omits the
+        // field publishes fine everywhere else and fails only at the registry, so it is
+        // checked here, before anything is built or uploaded.
+        let declared = json["repository"]["url"]
+            .as_str()
+            .map(normalize_repository)
+            .unwrap_or_default();
         if found != version {
             mismatches.push(format!(
                 "{} has version {} but workspace is {}",
                 name, found, version
+            ));
+        } else if declared != repository {
+            mismatches.push(format!(
+                "{} declares repository {:?} but the workspace repository is {}",
+                name,
+                json["repository"]["url"].as_str().unwrap_or(""),
+                repository
             ));
         } else {
             println!("  {} {}: OK", name, found);
@@ -643,6 +667,35 @@ fn workspace_version(manifest: &Path) -> Result<String, String> {
                 manifest.display()
             )
         })
+}
+
+fn workspace_repository(manifest: &Path) -> Result<String, String> {
+    let text =
+        fs::read_to_string(manifest).map_err(|e| format!("read {}: {}", manifest.display(), e))?;
+    let value = parse_manifest(&text, manifest)?;
+    value
+        .get("workspace")
+        .and_then(|w| w.get("package"))
+        .and_then(|p| p.get("repository"))
+        .and_then(|v| v.as_str())
+        .map(normalize_repository)
+        .ok_or_else(|| {
+            format!(
+                "no [workspace.package] repository found in {}",
+                manifest.display()
+            )
+        })
+}
+
+// Compare repository URLs across ecosystems: Cargo uses "https://host/owner/repo", npm
+// package.json uses "git+https://host/owner/repo.git". Only the path identifies the
+// repository, so the transport prefix and the .git suffix are dropped.
+fn normalize_repository(url: &str) -> String {
+    url.trim()
+        .trim_start_matches("git+")
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .to_string()
 }
 
 // Parse a Cargo.toml into the document root table.
@@ -825,9 +878,14 @@ fn verify_publish_checks(root: &Path) -> Result<(), String> {
         }
     }
 
-    // npm packages must carry the workspace version too (same assertion npm --version-sync makes).
+    // npm packages must carry the workspace version and repository too (same assertions
+    // npm --version-sync makes).
     let packages_dir = root.join("packages");
-    check_package_versions(&packages_dir, &version)?;
+    check_package_versions(
+        &packages_dir,
+        &version,
+        &workspace_repository(&root.join("Cargo.toml"))?,
+    )?;
 
     Ok(())
 }
@@ -1077,13 +1135,14 @@ mod tests {
         let packages = dir.path().join("packages");
         write(
             &packages.join("mindctx/package.json"),
-            r#"{"name":"mindctx","version":"1.2.3"}"#,
+            r#"{"name":"mindctx","version":"1.2.3","repository":{"url":"git+https://example.test/o/r.git"}}"#,
         );
         write(
             &packages.join("mindctx-darwin-arm64/package.json"),
-            r#"{"name":"@mindctx/darwin-arm64","version":"9.9.9"}"#,
+            r#"{"name":"@mindctx/darwin-arm64","version":"9.9.9","repository":{"url":"git+https://example.test/o/r.git"}}"#,
         );
-        let err = check_package_versions(&packages, "1.2.3").unwrap_err();
+        let err =
+            check_package_versions(&packages, "1.2.3", "https://example.test/o/r").unwrap_err();
         assert!(err.contains("@mindctx/darwin-arm64"), "{}", err);
         assert!(err.contains("9.9.9"), "{}", err);
     }
@@ -1094,13 +1153,42 @@ mod tests {
         let packages = dir.path().join("packages");
         write(
             &packages.join("mindctx/package.json"),
-            r#"{"name":"mindctx","version":"1.2.3"}"#,
+            r#"{"name":"mindctx","version":"1.2.3","repository":{"url":"git+https://example.test/o/r.git"}}"#,
         );
         write(
             &packages.join("mindctx-darwin-arm64/package.json"),
-            r#"{"name":"@mindctx/darwin-arm64","version":"1.2.3"}"#,
+            r#"{"name":"@mindctx/darwin-arm64","version":"1.2.3","repository":{"url":"git+https://example.test/o/r.git"}}"#,
         );
-        check_package_versions(&packages, "1.2.3").unwrap();
+        check_package_versions(&packages, "1.2.3", "https://example.test/o/r").unwrap();
+    }
+
+    // A package without repository.url publishes everywhere except the registry, which
+    // rejects it once provenance is attached. The manifest check has to catch it instead.
+    #[test]
+    fn test_version_sync_requires_matching_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let packages = dir.path().join("packages");
+        write(
+            &packages.join("mindctx/package.json"),
+            r#"{"name":"mindctx","version":"1.2.3"}"#,
+        );
+        let err =
+            check_package_versions(&packages, "1.2.3", "https://example.test/o/r").unwrap_err();
+        assert!(err.contains("repository"), "{}", err);
+
+        // A different repository is just as fatal, and the two spellings of the same
+        // repository are not.
+        write(
+            &packages.join("mindctx/package.json"),
+            r#"{"name":"mindctx","version":"1.2.3","repository":{"url":"git+https://example.test/o/other.git"}}"#,
+        );
+        assert!(check_package_versions(&packages, "1.2.3", "https://example.test/o/r").is_err());
+
+        write(
+            &packages.join("mindctx/package.json"),
+            r#"{"name":"mindctx","version":"1.2.3","repository":{"url":"git+https://example.test/o/r.git/"}}"#,
+        );
+        check_package_versions(&packages, "1.2.3", "https://example.test/o/r").unwrap();
     }
 
     #[test]
@@ -1195,7 +1283,7 @@ mod tests {
         let root = dir.path();
         write(
             &root.join("Cargo.toml"),
-            "[workspace.package]\nversion = \"1.2.3\"\n",
+            "[workspace.package]\nversion = \"1.2.3\"\nrepository = \"https://example.test/o/r\"\n",
         );
         write(
             &root.join("crates/core/Cargo.toml"),
@@ -1211,7 +1299,7 @@ mod tests {
         );
         write(
             &root.join("packages/mindctx/package.json"),
-            r#"{"name":"mindctx","version":"1.2.3"}"#,
+            r#"{"name":"mindctx","version":"1.2.3","repository":{"url":"git+https://example.test/o/r.git"}}"#,
         );
         verify_publish_checks(root).unwrap();
     }
@@ -1222,7 +1310,7 @@ mod tests {
         let root = dir.path();
         write(
             &root.join("Cargo.toml"),
-            "[workspace.package]\nversion = \"1.2.3\"\n",
+            "[workspace.package]\nversion = \"1.2.3\"\nrepository = \"https://example.test/o/r\"\n",
         );
         write(
             &root.join("crates/core/Cargo.toml"),

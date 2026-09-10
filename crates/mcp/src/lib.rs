@@ -3,7 +3,7 @@
 //! mindctx MCP service. Four tools: search / glob / read / outline.
 //!
 //! Wire presentation ([`mindctx_core::wire`]): default text wire sends one rendered page per result;
-//! `MINDCTX_WIRE=envelope` / `serve --wire envelope` restores the full envelope JSON (compact, v3).
+//! `MINDCTX_WIRE=envelope` / `serve --wire envelope` restores the full envelope JSON (compact).
 //! Errors: invalid params + tool failures surface as `Ok(CallToolResult::error(...))`;
 //! only an unknown tool name is a protocol-level `Err(McpError)` (-32602).
 //!

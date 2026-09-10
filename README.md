@@ -48,7 +48,7 @@ Four MCP tools, on by default:
 | `read` | Text read with 1-based lines, a token budget as the only ceiling, batch reads of 1–32 files sharing one budget, encoding auto-detection. |
 | `outline` | File symbol skeleton via tree-sitter (6 languages) — see structure before reading the whole file. |
 
-Every result is an **envelope (v3)** with exact token accounting (`token_usage`) and a
+Every result is an **envelope** with exact token accounting (`token_usage`) and a
 `terminal`/`next_call` continuation contract: truncation is a cursor, not a dead end.
 
 ## MCP setup

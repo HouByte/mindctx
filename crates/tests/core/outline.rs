@@ -171,9 +171,8 @@ fn envelope_empty_shape() {
     );
 }
 
-/// Envelope subset for a real search call: text/token_usage/truncated
-/// the locked envelope shape per ; the full v3 shape is exercised in
-/// `envelope_v3_full_shape`).
+/// Envelope subset for a real search call: text/token_usage/truncated, against the
+/// locked envelope shape; the full shape is exercised in `envelope_full_shape`.
 #[test]
 fn envelope_search_shape() {
     use mindctx_core::budget::DEFAULT_TOKEN_BUDGET;
@@ -199,10 +198,10 @@ fn envelope_search_shape() {
     );
 }
 
-/// Envelope v3: every field of the contract populated once, locking the shape
-/// as an inline literal.
+/// Every field of the contract populated once, locking the shape as an
+/// inline literal.
 #[test]
-fn envelope_v3_full_shape() {
+fn envelope_full_shape() {
     let json = r#"{
         "text": "src/lib.rs\n  10: pub fn handle()",
         "token_usage": {"returned": 2380, "budget": 4000},
@@ -232,7 +231,7 @@ fn envelope_v3_full_shape() {
             "unlisted": 1
         }
     }"#;
-    let parsed: Envelope = serde_json::from_str(json).expect("v3 envelope must parse");
+    let parsed: Envelope = serde_json::from_str(json).expect("envelope must parse");
     assert!(parsed.truncated);
     assert!(parsed.next_call.is_some());
     assert!(!parsed.violations.is_empty());

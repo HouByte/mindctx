@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Integration smoke test: the envelope contract holds outside the crate boundary (v3 shape, locked by the inline assertions here and in the envelope unit tests).
+//! Integration smoke test: the envelope contract holds outside the crate boundary, locked by the inline assertions here and in the envelope unit tests.
 
 use mindctx_core::envelope::Envelope;
 
 #[test]
-fn envelope_accepts_v3_shape_from_outside_the_crate() {
+fn envelope_shape_is_accepted_from_outside_the_crate() {
     let raw = r#"{
         "text": "crates/core/src/retrieve/mod.rs\n1-hybrid ranking\n\n(Complete: 1 result shown.)",
         "token_usage": { "returned": 10, "budget": 4000 },
@@ -20,11 +20,11 @@ fn envelope_accepts_v3_shape_from_outside_the_crate() {
     assert!(!e.truncated);
 }
 
-/// Pre-v3 envelopes (retired `results`/`citations`/`kb_hits`/`truncation_pointer`/
-/// `Hit.score`/`Hit.tokens` fields) must still deserialize: unknown fields are
-/// ignored, so a version bump never breaks a consumer that parses an old payload.
+/// Payloads carrying fields retired from the contract (`results`/`citations`/
+/// `kb_hits`/`truncation_pointer`/`Hit.score`/`Hit.tokens`) must still deserialize:
+/// unknown fields are ignored, so removing a field never breaks an old payload.
 #[test]
-fn envelope_still_parses_pre_v3_payloads() {
+fn envelope_still_parses_payloads_with_retired_fields() {
     let raw = r#"{
         "results": [
             { "path": "a.rs", "lines": [1, 2], "snippet": "x", "score": 0.5, "tokens": 10 }
@@ -37,6 +37,6 @@ fn envelope_still_parses_pre_v3_payloads() {
     }"#;
 
     let e: Envelope =
-        serde_json::from_str(raw).expect("pre-v3 payloads must remain deserializable");
+        serde_json::from_str(raw).expect("payloads carrying retired fields must parse");
     assert_eq!(e.token_usage.returned, 10);
 }

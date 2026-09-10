@@ -71,7 +71,8 @@ fn envelope_of(result: &rmcp::model::CallToolResult) -> Value {
         .unwrap_or_else(|e| panic!("text content must be valid envelope JSON: {e}"))
 }
 
-/// Asserts the envelope v3 subset: token accounting, terminal state, rendered page.
+/// Asserts the envelope subset published to MCP clients: token accounting, terminal
+/// state, rendered page.
 fn assert_envelope_shape(env: &Value) {
     assert!(
         env.get("token_usage")

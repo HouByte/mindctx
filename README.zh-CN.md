@@ -43,7 +43,7 @@ mindctx --version
 | `read` | 文本读取，1-based 行、token 预算为唯一上限、1–32 文件批量共享预算、编码自动探测。 |
 | `outline` | 文件符号骨架（tree-sitter，6 语言）——不读全文先看结构。 |
 
-所有结果都是 **envelope v3 信封**：精确 token 记账（`token_usage`）+ `terminal`/`next_call` 续读契约——"被裁"是可继续的游标而非死胡同。
+所有结果都是 **envelope**：精确 token 记账（`token_usage`）+ `terminal`/`next_call` 续读契约——"被裁"是可继续的游标而非死胡同。
 
 ## MCP 接入
 

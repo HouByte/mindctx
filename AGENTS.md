@@ -48,7 +48,7 @@ This table is the source of truth. New code must follow it without re-debate.
 
 ## Engineering discipline (violations get reverted)
 
-1. **envelope is versioned (v3)**: single definition at `crates/core/src/envelope.rs`; JSON shape locked by inline assertions in `crates/tests/core/envelope_smoke.rs` and the inline v3 shape literals in the envelope tests. Breaking field changes require an envelope version bump plus synchronized updates to those locks in the same change; additive fields never break old consumers (unknown fields deserialize as ignored). The MCP tool schema fixture at `crates/tests/contract/expected_schemas.json` locks the tools' input schemas, not the envelope shape.
+1. **envelope is one locked contract**: single definition at `crates/core/src/envelope.rs`; the JSON shape is locked by inline assertions in `crates/tests/core/envelope_smoke.rs` and the shape literals in the envelope tests. A breaking field change must move those locks in the same change; additive fields never break old consumers (unknown fields deserialize as ignored). The MCP tool schema fixture at `crates/tests/contract/expected_schemas.json` locks the tools' input schemas, not the envelope shape.
 2. **No business logic in mcp handlers**: transport coupling would force a rewrite for the second protocol line (HTTP / IDE plugin).
 3. **core is a pure lib**: state is injected by callers, no process-level singletons.
 4. **Don't reinvent wheels**: prefer established crates (clap, serde, etc.) over custom reimplementations; only build something custom when the existing options genuinely don't fit.

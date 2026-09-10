@@ -305,9 +305,11 @@ jobs:
       # succeeds only for a package that carries a Trusted Publisher entry naming this
       # repository, release.yml, and the "release" environment; any other package falls
       # back to credential lookup and fails ENEEDAUTH.
-      # No --provenance: that requires a public GitHub repo for sigstore
-      # provenance bundle verification. Re-enable when HouByte/mindctx goes
-      # public (alpha stays private).
+      # Provenance is not requested here and is attached anyway: for a public package
+      # published from GitHub Actions, npm sets it itself (see npm's oidc.js). The registry
+      # then validates the provenance repository against each package's repository.url and
+      # rejects the publish on a mismatch, so every package.json must declare it — checked
+      # by `xtask npm --version-sync` before anything is built.
       #
       # Idempotent: each package publishes only when the pre-flight probe did not find it,
       # so a re-run that stopped mid-flight (or a package whose trust relationship was
