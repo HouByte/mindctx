@@ -1,0 +1,17 @@
+[package]
+name = "mindctx-mcp"
+description = "mindctx internal library: rmcp stdio server + tool registry. Business logic must not live in handlers. mindctx internal implementation; do not depend on it directly; API is unstable"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+[dependencies]
+mindctx-core = { workspace = true }
+rmcp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }

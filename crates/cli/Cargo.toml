@@ -1,0 +1,22 @@
+[package]
+name = "mindctx"
+description = "mindctx CLI: apply/unapply/status/... + serve (MCP entry); crates.io name holding and cargo install entry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "mindctx"
+path = "src/main.rs"
+
+[dependencies]
+mindctx-core = { workspace = true }
+mindctx-mcp = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }
