@@ -11,6 +11,9 @@ node_modules/
 
 .env
 
+# release-time scratch: written by scripts/release-probe.sh, consumed by the publish steps
+release-state.json
+
 # build artifacts: staged into packages/*/bin/ by `xtask npm --version-sync` at release time,
 # never committed (the placeholder .gitkeep keeps the dir in git so package.json "files": ["bin/"] resolves).
 dist/

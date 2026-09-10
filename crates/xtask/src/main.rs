@@ -758,10 +758,19 @@ fn verify_publish(args: &[String]) {
 
 // True when cargo's dry-run failure is the expected pre-first-publish condition:
 // an internal dependency is not on crates.io yet, so packaging cannot resolve it.
+//
+// Two shapes, because cargo words this differently depending on whether the dependency has
+// any published version at all: `no matching package named` when the name is absent from the
+// index, and `failed to select a version for the requirement` when versions exist but none
+// match the requirement. Both must be recognised, or the expected case is reported as a
+// fatal dry-run failure.
 fn is_unpublished_internal_dep(stderr: &str, internal_deps: &[&str]) -> bool {
-    internal_deps
-        .iter()
-        .any(|dep| stderr.contains(&format!("no matching package named `{}` found", dep)))
+    internal_deps.iter().any(|dep| {
+        stderr.contains(&format!("no matching package named `{dep}` found"))
+            || (stderr.contains(&format!(
+                "failed to select a version for the requirement `{dep} = "
+            )) && stderr.contains("location searched: crates.io index"))
+    })
 }
 
 // Manifest-level checks: every publishable crate carries the workspace version, each
@@ -1235,6 +1244,32 @@ mod tests {
             &["mindctx-core"]
         ));
         assert!(!is_unpublished_internal_dep(stderr, &[]));
+    }
+
+    // The dependency is on crates.io, but only at versions the requirement excludes, so cargo
+    // reports a version-selection failure instead of a missing package. This is the wording
+    // `cargo publish --dry-run -p mindctx-mcp` actually produces before mindctx-core has ever
+    // been published at the workspace version, and the previous revision of this check did not
+    // recognise it: a normal pre-first-publish state was reported as a fatal dry-run failure.
+    #[test]
+    fn test_unpublished_internal_dep_detection_version_selection_failure() {
+        let stderr = "error: failed to prepare local package for uploading\n\nCaused by:\n  failed to select a version for the requirement `mindctx-core = \"^0.1.0\"`\n  candidate versions found which didn't match: 0.0.1-alpha.2, 0.0.1-alpha.1\n  location searched: crates.io index\n  required by package `mindctx-mcp v0.1.0`\n";
+        assert!(is_unpublished_internal_dep(stderr, &["mindctx-core"]));
+        assert!(is_unpublished_internal_dep(
+            stderr,
+            &["mindctx-core", "mindctx-mcp"]
+        ));
+        // A different dependency's version conflict is not this crate's expected condition.
+        assert!(!is_unpublished_internal_dep(stderr, &["mindctx"]));
+    }
+
+    // The crates.io location is load-bearing: only a dependency that cannot be resolved from
+    // the registry is the expected pre-first-publish case. Any other source failing to resolve
+    // is a real misconfiguration and must still fail the dry-run.
+    #[test]
+    fn test_unpublished_internal_dep_requires_registry_location() {
+        let stderr = "error: failed to prepare local package for uploading\n\nCaused by:\n  failed to select a version for the requirement `mindctx-core = \"^0.1.0\"`\n  location searched: some other source\n";
+        assert!(!is_unpublished_internal_dep(stderr, &["mindctx-core"]));
     }
 
     #[test]

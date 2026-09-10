@@ -1,4 +1,5 @@
-# Release pipeline. Triggered by a push of a v* tag. Publishing steps run in
+# Release pipeline. Triggered by a push of a v* tag, or manually (workflow_dispatch) to run
+# the same checks without publishing. Publishing steps run in
 # the GitHub environment "release": configure required reviewers on that environment for
 # the manual owner approval gate. A tag<->workspace-version consistency check fails the
 # workflow before anything is published. Binaries are staged by `xtask dist` as
@@ -7,12 +8,24 @@
 # staged by `xtask npm --version-sync` before publishing.
 #
 # Auth: Trusted Publishing via OIDC (id-token: write). crates.io and npm each trust
-# the release.yml workflow per package; no long-lived tokens in GitHub secrets.
+# the release.yml workflow per package; no long-lived tokens in GitHub secrets. Trusted
+# Publishing replaces credentials only: it is not configured per package until the trust
+# relationship exists on the registry side.
+#
+# Idempotent re-runs: a pre-flight probe asks both registries which packages already carry
+# this version, and every publish step skips what exists. Re-running a tag therefore
+# completes a partial release instead of failing on "already published" or auth.
+#
+# workflow_dispatch runs the same probe and trust checks without publishing anything, so the
+# configuration a tag push depends on can be verified on demand instead of discovered by a
+# failed release. It has to live in this file: npm's trusted publisher pins the workflow
+# file name, so a check run from anywhere else proves nothing about this workflow.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,9 +36,59 @@ env:
 
 jobs:
   # --------------------------------------------------------------------
+  # On-demand check (workflow_dispatch): runs the probe and the registry-side checks that a
+  # tag push depends on, and performs no writes. Nothing about it is tag-specific, so it can
+  # be re-run until it is green and then left alone; `xtask verify-publish` adds the
+  # manifest/order dry-runs that need no registry auth at all.
+  # --------------------------------------------------------------------
+  verify:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # The probe reads npm through `npm view`, and `xtask verify-publish` shells out to npm
+      # for its launcher dry-run, so this job needs the same Node the release job uses.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # The trusted publisher claims include the environment, so this job declares the same
+      # one the publishing job uses. Without it the npm exchange would fail for a correct
+      # configuration, and a false failure is worse than no check.
+      - name: Probe registries
+        run: bash scripts/release-probe.sh
+
+      - name: Verify npm Trusted Publishing
+        env:
+          TRUSTED_PUBLISHER_ENVIRONMENT: release
+        run: bash scripts/verify-npm-trust.sh
+
+      # Minting the token is the exchange `cargo publish` performs, so this proves OIDC is
+      # wired up for this repository and workflow. It is repository-scoped, not per crate:
+      # the endpoint succeeds as long as at least one crate is configured, and crates.io
+      # authorises each crate only when it is published. A crate left out is therefore caught
+      # at publish time, not here -- the npm step below has no such gap, because npm
+      # exchanges a token per package.
+      - name: Verify crates.io Trusted Publishing (repository level)
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Dry-run the publish path
+        run: cargo run -p xtask -- verify-publish
+
+  # --------------------------------------------------------------------
   # Phase 1: build all platform targets in parallel
   # --------------------------------------------------------------------
   build:
+    if: github.event_name == 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +136,7 @@ jobs:
   # --------------------------------------------------------------------
   release:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -95,8 +159,11 @@ jobs:
         with:
           node-version: 'lts/*'
 
-      # Guard against re-tagging/typo tags: the tag must name the workspace version.
+      # Guard against re-tagging/typo tags: the tag must name the workspace version. Only a
+      # tag push has a tag to compare against — a dispatch run has a branch ref, and the
+      # probe reads the version from Cargo.toml either way.
       - name: Verify tag matches workspace version
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -e
@@ -107,6 +174,25 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match workspace version $WORKSPACE_VERSION"
             exit 1
           fi
+
+      # Pre-flight registry probe: settles, before any side effect, which packages already
+      # carry this version. Every publish step below skips what is already there, so a
+      # re-run of the same tag finishes a partial release instead of failing.
+      #
+      # State reaches the steps below through release-state.json, not through step outputs:
+      # a mistyped output silently disables the gate that consumes it, and a skipped publish
+      # is indistinguishable in the log from a finished one.
+      - name: Probe registries
+        run: bash scripts/release-probe.sh
+
+      # Ask the registry to mint a publish token for every package that still needs
+      # publishing, without publishing anything: the same OIDC exchange `npm publish` makes.
+      # A missing or mismatched trusted publisher is therefore named up front instead of
+      # surfacing as ENEEDAUTH midway through the release.
+      - name: Verify npm Trusted Publishing
+        env:
+          TRUSTED_PUBLISHER_ENVIRONMENT: release
+        run: bash scripts/verify-npm-trust.sh
 
       # merge-multiple merges every artifact flat into dist/: the result is
       # dist/<target>/mindctx-<target>[.exe] and dist/<target>/SHA256SUMS per target.
@@ -179,66 +265,70 @@ jobs:
       # OIDC via rust-lang/crates-io-auth-action@v1: exchanges the GitHub Actions
       # OIDC token for a short-lived crates.io auth token (no long-lived secret
       # in GitHub secrets; classic CARGO_REGISTRY_TOKEN would need rotation).
-      # Idempotent: skip if all 3 crates already at this version (re-runs of the
-      # same tag don't republish).
-      # Order: mindctx-core -> mindctx-mcp -> mindctx (wait for index)
+      # Idempotent: each crate is published only when the pre-flight probe did not find it.
+      # Order: mindctx-core -> mindctx-mcp -> mindctx, each waiting for the index to catch up
+      # before the dependent crate resolves it.
+      # `cargo publish` is itself a backstop: it refuses a version that is already on the
+      # registry, so a stale probe fails loudly instead of overwriting.
       # ----------------------------------------------------------------
       - name: Authenticate with crates.io (OIDC)
         id: crates-auth
         uses: rust-lang/crates-io-auth-action@v1
 
-      - name: Check whether all 3 crates are already at ${{ github.ref_name }}
-        id: crates-already-published
+      - name: Publish crates.io packages
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+        shell: bash
         run: |
-          TAG="${{ github.ref_name }}"
-          TAG="${TAG#v}"
+          set -euo pipefail
+          VERSION="$(jq -r '.version' release-state.json)"
           for c in mindctx-core mindctx-mcp mindctx; do
-            if ! curl -sf "https://crates.io/api/v1/crates/$c/$TAG" >/dev/null; then
-              echo "needs_publish=true"
-              exit 0
+            if [ "$(jq -r --arg k "$c" '.crates[$k]' release-state.json)" = "true" ]; then
+              echo "$c $VERSION already on crates.io — skipped"
+              continue
+            fi
+            echo "publishing $c $VERSION"
+            cargo publish -p "$c" --allow-dirty
+            # mindctx-mcp resolves mindctx-core, and mindctx resolves mindctx-mcp, from the
+            # registry rather than the workspace. Publish-then-wait keeps each dependent
+            # crate resolvable; the wait is skipped after the last crate.
+            if [ "$c" != "mindctx" ]; then
+              sleep 30
             fi
           done
-          echo "needs_publish=false"
-
-      - name: Publish mindctx-core
-        if: steps.crates-already-published.outputs.needs_publish == 'true'
-        run: cargo publish -p mindctx-core --allow-dirty
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
-
-      - name: Publish mindctx-mcp (wait for index)
-        if: steps.crates-already-published.outputs.needs_publish == 'true'
-        run: sleep 30 && cargo publish -p mindctx-mcp --allow-dirty
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
-
-      - name: Publish mindctx (final binary)
-        if: steps.crates-already-published.outputs.needs_publish == 'true'
-        run: sleep 30 && cargo publish -p mindctx --allow-dirty
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
 
       # ----------------------------------------------------------------
       # Publish to npm (owner-gated by the "release" environment)
-      # OIDC: npm 11+ uses ACTIONS_ID_TOKEN_REQUEST_TOKEN env var (auto-injected by
-      # GitHub Actions) to mint a short-lived JWT verified against the package's
-      # Trusted Publisher config.
+      # OIDC: npm 11+ reads the ACTIONS_ID_TOKEN_REQUEST_{URL,TOKEN} pair (auto-injected by
+      # GitHub Actions under id-token: write), mints a JWT, and exchanges it at
+      # /-/npm/v1/oidc/token/exchange/package/<name> for a publish token. The exchange
+      # succeeds only for a package that carries a Trusted Publisher entry naming this
+      # repository, release.yml, and the "release" environment; any other package falls
+      # back to credential lookup and fails ENEEDAUTH.
       # No --provenance: that requires a public GitHub repo for sigstore
       # provenance bundle verification. Re-enable when HouByte/mindctx goes
       # public (alpha stays private).
-      # Platform packages first, then launcher.
+      #
+      # Idempotent: each package publishes only when the pre-flight probe did not find it,
+      # so a re-run that stopped mid-flight (or a package whose trust relationship was
+      # added after a first attempt) resumes without republishing what already landed.
+      # Platform packages first, then the launcher whose optionalDependencies pin them.
       # ----------------------------------------------------------------
-      - name: Publish @mindctx/darwin-arm64
-        run: npm publish ./packages/mindctx-darwin-arm64 --access public --tag "$NPM_DIST_TAG"
-
-      - name: Publish @mindctx/darwin-x64
-        run: npm publish ./packages/mindctx-darwin-x64 --access public --tag "$NPM_DIST_TAG"
-
-      - name: Publish @mindctx/linux-x64
-        run: npm publish ./packages/mindctx-linux-x64 --access public --tag "$NPM_DIST_TAG"
-
-      - name: Publish @mindctx/win32-x64
-        run: npm publish ./packages/mindctx-win32-x64 --access public --tag "$NPM_DIST_TAG"
-
-      - name: Publish mindctx launcher
-        run: npm publish ./packages/mindctx --access public --tag "$NPM_DIST_TAG"
+      - name: Publish npm packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(jq -r '.version' release-state.json)"
+          NAMES=(@mindctx/darwin-arm64 @mindctx/darwin-x64 @mindctx/linux-x64 @mindctx/win32-x64 mindctx)
+          # The ./ prefix is load-bearing: a bare `packages/mindctx` spec is parsed by npm as
+          # a GitHub user/repo shorthand, not a directory, and the publish fails on a git
+          # clone instead of shipping the tarball.
+          DIRS=(./packages/mindctx-darwin-arm64 ./packages/mindctx-darwin-x64 ./packages/mindctx-linux-x64 ./packages/mindctx-win32-x64 ./packages/mindctx)
+          for i in "${!NAMES[@]}"; do
+            if [ "$(jq -r --arg k "${NAMES[$i]}" '.npms[$k]' release-state.json)" = "true" ]; then
+              echo "${NAMES[$i]}@$VERSION already on npm — skipped"
+              continue
+            fi
+            echo "publishing ${NAMES[$i]}@$VERSION"
+            npm publish "${DIRS[$i]}" --access public --tag "$NPM_DIST_TAG"
+          done
