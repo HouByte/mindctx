@@ -16,7 +16,7 @@ cargo build && cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings   # mirrors CI
 cargo run -p mindctx -- --version
 npx @modelcontextprotocol/inspector cargo run -p mindctx -- serve   # MCP debug
-cargo run -p xtask -- <dist|npm|about>                  # release automation
+cargo run -p xtask -- <dist|npm|release|verify-publish|preflight|about>   # release automation
 ```
 
 ## Language policy
@@ -57,7 +57,7 @@ This table is the source of truth. New code must follow it without re-debate.
 7. **Single version source**: `[workspace.package].version`; npm packages mirror it via `xtask release`.
 8. **Pre-commit must be green**: fmt + clippy `-D warnings` + test (lefthook pre-commit hook).
 9. **No Chinese in source files** (enforced by the `comment-language` CI job — see below); comments, error text, and protocol strings must be English.
-10. **Docs are current-state truth, not a journal**: READMEs and this file state only what is still true — current facts, in-force decisions, open gates. No date-stamped history ("landed on …", "retired on …", "decided on …"): the timeline is git history, and provenance is cited as a tag/commit/branch, never a calendar date. A day-by-day work log, if needed, lives outside the repo, never inside.
+10. **Docs are current-state truth, not a journal**: READMEs and this file state only what is still true — current facts, in-force decisions, open gates. No date-stamped history ("landed on …", "retired on …", "decided on …") and no internal task/issue IDs: the timeline is git history, and provenance is cited as a tag/commit/branch, never a calendar date or a tracker ID. A day-by-day work log, if needed, lives outside the repo, never inside.
 
 ## CI guard: comment-language
 
