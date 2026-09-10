@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+description = "Release automation: cargo xtask <dist|npm|about>"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+sha2.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+semver.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,13 @@
+{
+  "name": "@mindctx/win32-x64",
+  "version": "0.1.0",
+  "description": "mindctx binary for win32-x64 (installed automatically by the mindctx launcher; do not install directly)",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HouByte/mindctx.git"
+  },
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/"]
+}

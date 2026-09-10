@@ -1,0 +1,24 @@
+{
+  "name": "mindctx",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "bin": {
+    "mindctx": "launcher.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@mindctx/win32-x64": "0.1.0",
+    "@mindctx/linux-x64": "0.1.0",
+    "@mindctx/darwin-x64": "0.1.0",
+    "@mindctx/darwin-arm64": "0.1.0"
+  },
+  "files": [
+    "launcher.js",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

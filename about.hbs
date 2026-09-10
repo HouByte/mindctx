@@ -1,0 +1,7 @@
+# Third-party licenses
+
+mindctx bundles third-party crates. Licenses below are regenerated at release time (`cargo run -p xtask -- about`).
+
+{{#each overview}}
+- **{{name}}** {{#if versions}}({{versions}}){{/if}} — {{#if licenses}}{{licenses}}{{else}}license not detected{{/if}}
+{{/each}}
