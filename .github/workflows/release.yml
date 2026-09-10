@@ -153,10 +153,23 @@ jobs:
       # all named mindctx[.exe] would collapse into a single arbitrary upload.
       # prerelease: tags containing "-" (alpha/beta/rc) are marked prerelease so the
       # "Latest release" badge stays on the stable release.
+      # Release notes come from CHANGELOG.md: extract the section for the tag's version so the
+      # GitHub Release page mirrors the changelog instead of shipping an empty body.
+      - name: Extract release notes from CHANGELOG
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v hdr="## [$VERSION]" '
+            $0 == hdr { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: release-notes.md
           files: |
             SHA256SUMS
             dist/*/mindctx-*
