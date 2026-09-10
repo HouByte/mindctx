@@ -1,0 +1,51 @@
+[package]
+name = "mindctx-tests"
+description = "Cross-crate integration tests + fixtures; MCP contract tests go through JSON-RPC round-trips"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# All integration test targets. core/ holds unit-level cross-crate smoke; contract/
+# holds MCP-published-surface and CLI round-trip tests. Fixtures live in fixtures/
+# and are referenced from these tests via CARGO_MANIFEST_DIR-relative paths.
+[[test]]
+name = "contract"
+path = "contract/cross_tool_invariants.rs"
+
+[[test]]
+name = "cli_mcp_roundtrip"
+path = "contract/cli_mcp_roundtrip.rs"
+
+[[test]]
+name = "mcp_published_surface"
+path = "contract/mcp_published_surface.rs"
+
+[[test]]
+name = "envelope_smoke"
+path = "core/envelope_smoke.rs"
+
+[[test]]
+name = "search_read_loop"
+path = "core/search_read_loop.rs"
+
+[[test]]
+name = "encoding_matrix"
+path = "core/encoding_matrix.rs"
+
+[[test]]
+name = "outline"
+path = "core/outline.rs"
+
+# Dev-deps merged from crates/{core,mcp,cli} after per-crate tests/ dirs were
+# consolidated here.
+[dev-dependencies]
+mindctx-core = { workspace = true }
+mindctx-mcp = { workspace = true }
+rmcp = { workspace = true, features = ["client"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["io-util"] }

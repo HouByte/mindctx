@@ -1,0 +1,6 @@
+1	package main
+2	
+3	// fixture: go symbols for outline tests.
+4	//
+
+(Complete: requested window shown; lines 1-4 of 131 shown.)

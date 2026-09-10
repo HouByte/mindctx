@@ -1,0 +1,3 @@
+before NEEDLE
+NEEDLE after
+tail

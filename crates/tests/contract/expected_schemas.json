@@ -1,0 +1,221 @@
+{
+  "glob": {
+    "properties": {
+      "filter_mode": {
+        "default": "ignore",
+        "description": "`ignore` (default; honors `.ignore` + gitignore rules) | `all`.",
+        "enum": [
+          "ignore",
+          "all"
+        ],
+        "type": "string"
+      },
+      "limit": {
+        "default": 100,
+        "description": "Max output entries; default 100, range 1–1000.",
+        "maximum": 1000,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "default": 0,
+        "description": "Skip the first N entries before applying limit.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "output_mode": {
+        "default": "paths",
+        "description": "`paths` (default) | `details`.",
+        "enum": [
+          "paths",
+          "details"
+        ],
+        "type": "string"
+      },
+      "path": {
+        "description": "Root directory to search, project-relative; default: the project root.",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Glob pattern(s) to match (array published, accepts a bare string).",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "sort": {
+        "default": "modified",
+        "description": "`modified` (default) | `path`.",
+        "enum": [
+          "modified",
+          "path"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern"
+    ],
+    "type": "object"
+  },
+  "outline": {
+    "properties": {
+      "depth": {
+        "default": null,
+        "description": "Outline depth in levels (default 2)",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "path": {
+        "description": "File path (project-relative)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "read": {
+    "properties": {
+      "encoding": {
+        "description": "WHATWG encoding label to decode the file with (single-file reads).",
+        "type": "string"
+      },
+      "file_path": {
+        "description": "Single file path (mutually exclusive with `files`).",
+        "type": "string"
+      },
+      "files": {
+        "description": "Batch entries (mutually exclusive with `file_path`); 1..=32.",
+        "items": {
+          "description": "One batch read entry.",
+          "properties": {
+            "encoding": {
+              "description": "WHATWG encoding label.",
+              "type": "string"
+            },
+            "limit": {
+              "description": "Line limit.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "1-based line offset.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "description": "Project-relative file path.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        },
+        "maxItems": 32,
+        "minItems": 1,
+        "type": "array"
+      },
+      "limit": {
+        "description": "Line limit (omitted = unbounded; the budget is the only ceiling).",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "offset": {
+        "description": "1-based line offset (minimum 1).",
+        "minimum": 1,
+        "type": "integer"
+      }
+    },
+    "type": "object"
+  },
+  "search": {
+    "properties": {
+      "after_context": {
+        "description": "Context lines printed after each match (rg -A); content mode only.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "before_context": {
+        "description": "Context lines printed before each match (rg -B); content mode only.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "case_insensitive": {
+        "description": "Case-insensitive search (rg -i).",
+        "type": "boolean"
+      },
+      "context": {
+        "description": "Context on both sides of each match (rg -C); takes precedence over before/after.\nContent mode only.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "encoding": {
+        "description": "Single-file target only: WHATWG label to decode that one file with.",
+        "type": "string"
+      },
+      "fallback_encoding": {
+        "description": "Directory target only: encoding assumed solely for files auto-detection cannot\ndecide; a BOM, valid UTF-8, or an already-resolved file is never overridden.",
+        "type": "string"
+      },
+      "glob": {
+        "description": "File globs to filter by; a leading `!` marks an exclusion and exclusions always\nwin. Published as an array, a bare string is accepted.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "head_limit": {
+        "description": "Entry cap for the page; default 250; `0` lifts the entry cap (the token budget\nstill applies).",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "line_numbers": {
+        "description": "Prefix content lines with line numbers (rg -n); defaults to true.",
+        "type": "boolean"
+      },
+      "multiline": {
+        "description": "Patterns may span lines; `.` also matches newlines, and `\\n` matches `\\r\\n`.",
+        "type": "boolean"
+      },
+      "offset": {
+        "description": "Entries to skip before head_limit applies.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "only_matching": {
+        "description": "Emit each matched part on its own line (rg -o); content mode only.",
+        "type": "boolean"
+      },
+      "output_mode": {
+        "description": "files_with_matches (default) | content | count | summary.",
+        "enum": [
+          "content",
+          "files_with_matches",
+          "count",
+          "summary"
+        ],
+        "type": "string"
+      },
+      "path": {
+        "description": "Target file or directory, project-relative; defaults to the project root.",
+        "type": "string"
+      },
+      "pattern": {
+        "description": "Regex in Rust regex syntax: lookaround and backreferences are unavailable, and\nliteral braces must be escaped.",
+        "type": "string"
+      },
+      "type": {
+        "description": "Standard file-type filter, e.g. \"js\", \"py\", \"rust\" (rg --type-like semantics).",
+        "type": "string"
+      }
+    },
+    "required": [
+      "pattern"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,24 @@
+7-40	pub mod policy
+9-13	  pub struct RetryPolicy
+15-28	  impl RetryPolicy
+31-35	  pub enum BackoffKind
+37-39	  pub fn default_backoff() -> BackoffKind
+42-42	pub const USER_AGENT: &str = "mindctx-fixture/0.1"
+44-44	pub static GLOBAL_POLICY: std::sync::OnceLock<policy::RetryPolicy> = std::sync::OnceLock::new()
+46-46	pub type HeaderMap = std::collections::HashMap<String, String>
+48-51	pub trait Transport
+49-49	  fn send(&self, request: &str) -> Result<String, String>
+50-50	  fn poll_ready(&self) -> bool
+53-56	pub struct HttpClient
+58-82	impl HttpClient
+59-64	  pub fn new(base_url: impl Into<String>) -> Self
+66-68	  pub fn get(&self, path: &str) -> Result<String, RetryError>
+70-72	  pub fn post(&self, path: &str, body: &str) -> Result<String, RetryError>
+74-77	  fn send(&self, method: &str, path: &str, body: Option<&str>) -> Result<String, RetryError>
+79-81	  pub fn set_header(&self, headers: &mut HeaderMap, key: &str, value: &str)
+85-88	pub struct RetryError
+91-103	pub fn retry_with_backoff<F, T>(mut attempt: F, policy: &policy::RetryPolicy) -> Result<T, String>
+106-108	pub fn parse_retry_after(header: Option<&str>) -> Option<u64>
+110-120	pub mod jitter
+112-114	  pub fn full(delay_ms: u64) -> u64
+117-119	  pub fn equal(delay_ms: u64) -> u64
