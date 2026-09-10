@@ -1,0 +1,20 @@
+# Pre-commit: fmt / clippy / test
+# Enable with: lefthook install (requires lefthook to be installed)
+# Each command sets the project-local toolchain env (RUSTUP_HOME / CARGO_HOME
+# / PATH) before invoking cargo, because lefthook spawns a fresh sh subshell
+# per hook that does NOT inherit the activated env. We set the vars inline
+# rather than sourcing scripts/activate.sh because that script resolves
+# `_ROOT` via `dirname "$0"`, which yields the shell name (not the script
+# path) when sourced from `sh -c ...` — interactive `source activate.sh`
+# works only because zsh sets $0 to the script path. PATH must be exported
+# in its own statement so `$CARGO_HOME` is already set when PATH is computed
+# (assignments inside one `export A=… B=…` are evaluated as a group).
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: sh -c 'export RUSTUP_HOME="$PWD/.toolchains/rustup"; export CARGO_HOME="$PWD/.toolchains/cargo"; export PATH="$CARGO_HOME/bin:$PATH"; cargo fmt --all -- --check'
+    clippy:
+      run: sh -c 'export RUSTUP_HOME="$PWD/.toolchains/rustup"; export CARGO_HOME="$PWD/.toolchains/cargo"; export PATH="$CARGO_HOME/bin:$PATH"; cargo clippy --workspace --all-targets -- -D warnings'
+    test:
+      run: sh -c 'export RUSTUP_HOME="$PWD/.toolchains/rustup"; export CARGO_HOME="$PWD/.toolchains/cargo"; export PATH="$CARGO_HOME/bin:$PATH"; cargo test --workspace'

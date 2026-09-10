@@ -1,0 +1,18 @@
+/target
+.toolchains/
+.superpowers/
+node_modules/
+.DS_Store
+*.rs.bk
+
+# mindctx runtime artifacts: index.db is derived and rebuildable at any time; only memories/ is tracked in git
+.mindctx/index.db
+.mindctx/*.db
+
+.env
+
+# build artifacts: staged into packages/*/bin/ by `xtask npm --version-sync` at release time,
+# never committed (the placeholder .gitkeep keeps the dir in git so package.json "files": ["bin/"] resolves).
+dist/
+packages/*/bin/*
+!packages/*/bin/.gitkeep

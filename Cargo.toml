@@ -1,0 +1,79 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/HouByte/mindctx"
+authors = ["HouByte"]
+
+# Single version source: crates always use workspace = true; no scattered version numbers.
+# Unreferenced deps are not compiled, but they are
+# registered here up front to avoid later version drift.
+[workspace.dependencies]
+# Internal crates: version must stay in sync with [workspace.package].version (cargo publish
+# requires path deps to carry a version, and cargo-deny wildcards also reject versionless deps;
+# xtask verifies consistency).
+mindctx-core = { path = "crates/core", version = "0.1.0" }
+mindctx-mcp = { path = "crates/mcp", version = "0.1.0" }
+
+# Basics
+anyhow = "1"
+chrono = "0.4"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+toml = "1"
+toml_edit = "0.25"
+semver = "1"
+tempfile = "3"
+home = "0.5"
+
+# CLI / MCP service
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "process"] }
+rmcp = { version = "3", features = ["server", "macros", "transport-io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Indexing / retrieval / semantics
+ignore = "0.4"
+grep-searcher = "0.1"
+grep-regex = "0.1"
+grep-matcher = "0.1"
+globset = "0.4"
+# tree-sitter: single runtime version 0.26. Grammars are decoupled via tree-sitter-language's
+# LanguageFn (each grammar's runtime tree-sitter dependency is only a dev-dep, so no second
+# runtime gets pulled in); bridged with `Language::from(<grammar>::LANGUAGE)`; per-language
+# feature gating lives in crates/core.
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+tree-sitter-go = "0.25"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-cpp = "0.23"
+notify = "8"
+notify-debouncer-full = "0.7"
+rusqlite = { version = "0.40", features = ["bundled"] }
+sqlite-vec = "0.1"
+
+# Encoding / token accounting
+encoding_rs = "0.8"
+chardetng = "1"
+tiktoken-rs = "0.12"
+fancy-regex = "0.14"
+sha2 = "0.10"
+hex = "0.4"
+
+# Quality / benchmarking
+criterion = "0.8"
+
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1

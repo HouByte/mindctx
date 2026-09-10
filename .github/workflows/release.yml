@@ -1,0 +1,231 @@
+# Release pipeline. Triggered by a push of a v* tag. Publishing steps run in
+# the GitHub environment "release": configure required reviewers on that environment for
+# the manual owner approval gate. A tag<->workspace-version consistency check fails the
+# workflow before anything is published. Binaries are staged by `xtask dist` as
+# dist/<target>/mindctx-<target>[.exe] (target-qualified: GitHub Release assets are flat
+# and must be uniquely named) with target-qualified SHA256SUMS, and npm platform bins are
+# staged by `xtask npm --version-sync` before publishing.
+#
+# Auth: Trusted Publishing via OIDC (id-token: write). crates.io and npm each trust
+# the release.yml workflow per package; no long-lived tokens in GitHub secrets.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # --------------------------------------------------------------------
+  # Phase 1: build all platform targets in parallel
+  # --------------------------------------------------------------------
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          # aarch64-unknown-linux-{musl,gnu} deferred to a follow-up PR which switches
+          # the cross-compile driver to cargo-zigbuild (Zig linker handles the cortex-a53 flag
+          # and avoids the musl cross-toolchain setup).
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl tools (linux musl targets)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      # xtask stages dist/<target>/mindctx-<target>[.exe] + dist/<target>/SHA256SUMS.
+      # The SHA256 step is portable by construction: hashing happens in Rust, not
+      # with GNU coreutils (macos runners have no sha256sum).
+      - name: Build and stage dist/<target>
+        run: cargo run -p xtask -- dist --target ${{ matrix.target }}
+
+      # Artifact "dist-<target>" contains <target>/mindctx-<target>[.exe] and
+      # <target>/SHA256SUMS (upload-artifact strips the leading `dist/`).
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist
+
+  # --------------------------------------------------------------------
+  # Phase 2: verify, assemble, release, publish (owner-gated environment)
+  # --------------------------------------------------------------------
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      # Prerelease channel: a tag containing "-" publishes npm
+      # packages under the "next" dist-tag instead of "latest", so default installs
+      # never see it. Stable tags publish to "latest" (npm's default when --tag is
+      # omitted, passed explicitly here for uniformity).
+      NPM_DIST_TAG: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node (for npm publish; ensures latest npm CLI with OIDC support)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      # Guard against re-tagging/typo tags: the tag must name the workspace version.
+      - name: Verify tag matches workspace version
+        shell: bash
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          WORKSPACE_VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "tag: $GITHUB_REF_NAME (version $TAG_VERSION), workspace version: $WORKSPACE_VERSION"
+          if [ "$TAG_VERSION" != "$WORKSPACE_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match workspace version $WORKSPACE_VERSION"
+            exit 1
+          fi
+
+      # merge-multiple merges every artifact flat into dist/: the result is
+      # dist/<target>/mindctx-<target>[.exe] and dist/<target>/SHA256SUMS per target.
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      # Per-target SUMS entries are target-qualified ("<hash>  <target>/mindctx[.exe]",
+      # written by xtask dist), so the concatenation is unambiguous. The assembly fails
+      # the workflow unless there are exactly $MATRIX_ENTRIES entries and every referenced
+      # file exists.
+      - name: Assemble and verify SHA256SUMS
+        shell: bash
+        run: |
+          set -e
+          cat dist/*/SHA256SUMS > SHA256SUMS
+          EXPECTED=$(find dist -mindepth 1 -maxdepth 1 -type d | wc -l)
+          LINES=$(wc -l < SHA256SUMS)
+          if [ "$LINES" -ne "$EXPECTED" ]; then
+            echo "::error::expected $EXPECTED checksum entries, got $LINES"
+            cat SHA256SUMS
+            exit 1
+          fi
+          while read -r hash path; do
+            if [ ! -f "dist/$path" ]; then
+              echo "::error::SHA256SUMS references missing file: dist/$path"
+              exit 1
+            fi
+          done < SHA256SUMS
+          echo "--- Combined SHA256SUMS ---"
+          cat SHA256SUMS
+
+      # Version-sync gate + npm staging: copies dist/<target>/mindctx-<target>[.exe] into
+      # packages/mindctx-<platform>/bin/ as mindctx[.exe] (the launcher's resolveBinPath
+      # expects that name inside the package) so npm publish ships real binaries.
+      - name: Version sync check + npm bin staging
+        run: cargo run -p xtask -- npm --version-sync
+
+      # Upload SHA256SUMS + all release binaries to GitHub Release. The staged names are
+      # target-qualified (mindctx-<target>[.exe]): release assets are flat, and five binaries
+      # all named mindctx[.exe] would collapse into a single arbitrary upload.
+      # prerelease: tags containing "-" (alpha/beta/rc) are marked prerelease so the
+      # "Latest release" badge stays on the stable release.
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            SHA256SUMS
+            dist/*/mindctx-*
+
+      # ----------------------------------------------------------------
+      # Publish to crates.io (owner-gated by the "release" environment)
+      # OIDC via rust-lang/crates-io-auth-action@v1: exchanges the GitHub Actions
+      # OIDC token for a short-lived crates.io auth token (no long-lived secret
+      # in GitHub secrets; classic CARGO_REGISTRY_TOKEN would need rotation).
+      # Idempotent: skip if all 3 crates already at this version (re-runs of the
+      # same tag don't republish).
+      # Order: mindctx-core -> mindctx-mcp -> mindctx (wait for index)
+      # ----------------------------------------------------------------
+      - name: Authenticate with crates.io (OIDC)
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Check whether all 3 crates are already at ${{ github.ref_name }}
+        id: crates-already-published
+        run: |
+          TAG="${{ github.ref_name }}"
+          TAG="${TAG#v}"
+          for c in mindctx-core mindctx-mcp mindctx; do
+            if ! curl -sf "https://crates.io/api/v1/crates/$c/$TAG" >/dev/null; then
+              echo "needs_publish=true"
+              exit 0
+            fi
+          done
+          echo "needs_publish=false"
+
+      - name: Publish mindctx-core
+        if: steps.crates-already-published.outputs.needs_publish == 'true'
+        run: cargo publish -p mindctx-core --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+
+      - name: Publish mindctx-mcp (wait for index)
+        if: steps.crates-already-published.outputs.needs_publish == 'true'
+        run: sleep 30 && cargo publish -p mindctx-mcp --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+
+      - name: Publish mindctx (final binary)
+        if: steps.crates-already-published.outputs.needs_publish == 'true'
+        run: sleep 30 && cargo publish -p mindctx --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+
+      # ----------------------------------------------------------------
+      # Publish to npm (owner-gated by the "release" environment)
+      # OIDC: npm 11+ uses ACTIONS_ID_TOKEN_REQUEST_TOKEN env var (auto-injected by
+      # GitHub Actions) to mint a short-lived JWT verified against the package's
+      # Trusted Publisher config.
+      # No --provenance: that requires a public GitHub repo for sigstore
+      # provenance bundle verification. Re-enable when HouByte/mindctx goes
+      # public (alpha stays private).
+      # Platform packages first, then launcher.
+      # ----------------------------------------------------------------
+      - name: Publish @mindctx/darwin-arm64
+        run: npm publish ./packages/mindctx-darwin-arm64 --access public --tag "$NPM_DIST_TAG"
+
+      - name: Publish @mindctx/darwin-x64
+        run: npm publish ./packages/mindctx-darwin-x64 --access public --tag "$NPM_DIST_TAG"
+
+      - name: Publish @mindctx/linux-x64
+        run: npm publish ./packages/mindctx-linux-x64 --access public --tag "$NPM_DIST_TAG"
+
+      - name: Publish @mindctx/win32-x64
+        run: npm publish ./packages/mindctx-win32-x64 --access public --tag "$NPM_DIST_TAG"
+
+      - name: Publish mindctx launcher
+        run: npm publish ./packages/mindctx --access public --tag "$NPM_DIST_TAG"

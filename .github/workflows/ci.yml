@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # cli_mcp_roundtrip spawns `mindctx serve` as a subprocess. The CLI crate
+      # has only [[bin]] (no [lib]), so it cannot enter the test dep graph as a
+      # library crate and `cargo test --workspace` alone does not build the bin
+      # on a fresh checkout — leading to ENOENT on every cli_mcp_roundtrip test
+      # since the crates/tests/ consolidation. Run a workspace build first so
+      # target/<profile>/mindctx is populated before the tests spawn it.
+      - run: cargo build --workspace
+      - run: cargo test --workspace
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  comment-language:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Block CN chars in source files
+        run: |
+          set -e
+          # Backstop for the language policy (AGENTS.md): comments must be English. Scope is
+          # comment lines (// /* */ #, which also catches rust attribute strings like
+          # #[error("...")]). String-literal test data is machine input, not authored prose —
+          # out of scope. Dir exclusions are data zones: fixtures only.
+          mapfile -d '' files < <(git ls-files -z '*.rs' '*.js' '*.sh' '*.toml' '*.yml' '*.yaml' \
+            ':!:crates/tests/fixtures')
+          offenders=""
+          if [ "${#files[@]}" -gt 0 ]; then
+            offenders=$(grep -nP '(^\s*(//|/\*|\*)|#).*[\x{4e00}-\x{9fff}]' "${files[@]}" || true)
+          fi
+          if [ -n "$offenders" ]; then
+            echo "::error::Chinese characters found in source files. See AGENTS.md Language policy."
+            echo "$offenders"
+            exit 1
+          fi
+
+  # End-to-end npm install verification. Verdaccio on localhost:4873
+  # stands in for the npm registry; the staged dist carries the real release
+  # binary for the CI platform and dummies for the rest. Runs after the fast
+  # gates so the heavier build + registry dance is not spent on a red tree.
+  install-smoke:
+    needs: [fmt, clippy, test, deny, comment-language]
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: http://localhost:4873
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build mindctx release binary
+        run: cargo build --release -p mindctx
+
+      - name: Stage dist packages for verdaccio publish
+        run: |
+          set -e
+          # ubuntu-latest -> @mindctx/linux-x64 carries the real release binary
+          # (makes --version/status/serve asserts real); the other three platform
+          # packages get dummies — npm never installs them here because their
+          # os/cpu fields do not match linux-x64.
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          echo "workspace version: $VERSION"
+
+          for pkg in win32-x64 linux-x64 darwin-x64 darwin-arm64; do
+            os="${pkg%%-*}"
+            cpu="${pkg#*-}"
+            ext=""
+            if [ "$pkg" = "win32-x64" ]; then ext=".exe"; fi
+            mkdir -p "dist/@mindctx/$pkg/bin"
+            if [ "$pkg" = "linux-x64" ]; then
+              cp target/release/mindctx "dist/@mindctx/$pkg/bin/mindctx"
+            else
+              printf '#!/bin/sh\nexit 0\n' > "dist/@mindctx/$pkg/bin/mindctx$ext"
+            fi
+            chmod +x "dist/@mindctx/$pkg/bin/mindctx$ext"
+            cat > "dist/@mindctx/$pkg/package.json" << EOF
+          {
+            "name": "@mindctx/$pkg",
+            "version": "$VERSION",
+            "description": "mindctx binary for $pkg (installed automatically by the mindctx launcher; do not install directly)",
+            "license": "MIT OR Apache-2.0",
+            "os": ["$os"],
+            "cpu": ["$cpu"],
+            "files": ["bin/"]
+          }
+          EOF
+          done
+
+          mkdir -p dist/mindctx
+          cp packages/mindctx/launcher.js dist/mindctx/
+          cat > dist/mindctx/package.json << EOF
+          {
+            "name": "mindctx",
+            "version": "$VERSION",
+            "bin": { "mindctx": "launcher.js" },
+            "engines": { "node": ">=18" },
+            "optionalDependencies": {
+              "@mindctx/win32-x64": "$VERSION",
+              "@mindctx/linux-x64": "$VERSION",
+              "@mindctx/darwin-x64": "$VERSION",
+              "@mindctx/darwin-arm64": "$VERSION"
+            },
+            "files": ["launcher.js"],
+            "publishConfig": { "access": "public" }
+          }
+          EOF
+
+      - name: Start verdaccio
+        run: |
+          docker run -d --name verdaccio-smoke --rm \
+            -p 4873:4873 \
+            -v verdaccio-smoke-storage:/verdaccio/storage \
+            verdaccio/verdaccio
+
+          for i in $(seq 1 30); do
+            if curl -s --fail "$REGISTRY/-/ping" > /dev/null 2>&1; then
+              echo "verdaccio ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "verdaccio did not become ready in 30s"
+          exit 1
+
+      - name: Publish to verdaccio
+        run: |
+          set -e
+          # verdaccio requires auth for publish: register a throwaway user via
+          # its couchdb-style endpoint and hand npm the returned bearer token
+          # (npm adduser is interactive and unreliable in CI).
+          CRED='{"name":"smoke","password":"smoke1234","email":"smoke@test.local","type":"user","roles":[]}'
+          TOKEN=$(curl -s -X PUT "$REGISTRY/-/user/org.couchdb.user:smoke" \
+            -H 'Content-Type: application/json' \
+            -d "$CRED" \
+            | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).token')
+          if [ -z "$TOKEN" ]; then
+            echo "FAIL: verdaccio did not return an auth token" >&2
+            exit 1
+          fi
+          echo "//localhost:4873/:_authToken=$TOKEN" >> ~/.npmrc
+
+          for pkg in win32-x64 linux-x64 darwin-x64 darwin-arm64; do
+            npm publish "dist/@mindctx/$pkg" --registry "$REGISTRY" --access public
+            echo "published @mindctx/$pkg"
+          done
+          npm publish ./dist/mindctx --registry "$REGISTRY" --access public
+          echo "published mindctx"
+
+      - name: Install and smoke test
+        run: |
+          set -e
+          npm install -g mindctx --registry "$REGISTRY"
+
+          VERSION=$(grep -m1 '^version = ' "$GITHUB_WORKSPACE/Cargo.toml" | cut -d'"' -f2)
+
+          # 1. --version prints the workspace version
+          VERSION_OUTPUT=$(mindctx --version)
+          echo "version output: $VERSION_OUTPUT"
+          if echo "$VERSION_OUTPUT" | grep -q "$VERSION"; then
+            echo "PASS: --version matches workspace version $VERSION"
+          else
+            echo "FAIL: --version did not contain $VERSION" >&2
+            exit 1
+          fi
+
+          # 2. status exits 0
+          mindctx status
+          echo "PASS: status exits 0"
+
+          # 3. serve answers an MCP initialize handshake (serverInfo.name = mindctx)
+          MCP_RESPONSE=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke-test","version":"0.0.1"}}}' \
+            | mindctx serve 2>/dev/null \
+            | head -1 || true)
+          if echo "$MCP_RESPONSE" | grep -q '"mindctx"'; then
+            echo "PASS: MCP handshake response contains 'mindctx'"
+          else
+            echo "FAIL: MCP handshake response missing 'mindctx': $MCP_RESPONSE" >&2
+            exit 1
+          fi
+
+          # 4. missing platform package: launcher error text matches the frozen contract
+          #    byte-exact (frozen contract in packages/mindctx/launcher.js).
+          #    --omit=optional skips @mindctx/*, so the launcher must fall into
+          #    the not-installed branch when invoked.
+          SMOKE_DIR=$(mktemp -d)
+          (cd "$SMOKE_DIR" && npm install mindctx --omit=optional --registry "$REGISTRY" --no-fund --no-audit --loglevel=error)
+          ACTUAL=$("$SMOKE_DIR/node_modules/.bin/mindctx" --version 2>&1 > /dev/null || true)
+          EXPECTED='mindctx: platform package @mindctx/linux-x64 was not installed (registry mirror may lag). Retry with the official registry: npm config set registry https://registry.npmjs.org/'
+          if [ "$ACTUAL" = "$EXPECTED" ]; then
+            echo "PASS: missing-platform-package error matches the frozen contract exactly"
+          else
+            echo "FAIL: missing-platform-package error text drifted from the frozen contract" >&2
+            echo "expected: $EXPECTED" >&2
+            echo "actual:   $ACTUAL" >&2
+            exit 1
+          fi
+
+          echo "ALL SMOKE TESTS PASSED"
+
+      - name: Stop verdaccio
+        if: always()
+        run: docker stop verdaccio-smoke || true

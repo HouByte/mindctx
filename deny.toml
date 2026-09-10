@@ -1,0 +1,32 @@
+# cargo-deny: third-party dependency discipline. CI runs `cargo deny check`.
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Only licenses actually present in the lockfile/registry are listed (verified via cargo deny list):
+# - MIT / Apache-2.0 / Apache-2.0 WITH LLVM-exception / BSD-3-Clause / Unicode-3.0
+# - Unlicense / LGPL-2.1-or-later appear inside OR expressions, already covered by the branches above; not listed separately
+# When adding a dependency with a new license, run `cargo deny list` first to see whether the allowlist needs extending.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

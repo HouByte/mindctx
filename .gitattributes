@@ -1,0 +1,10 @@
+# Test fixtures are byte-exact inputs to encoding and content assertions. Git's
+# default `core.autocrlf=true` on Windows would convert their LF endings to
+# CRLF on checkout, corrupting the encoding fixtures (Big5/GBK/EUC-KR/Shift_JIS
+# /Windows-1252 raw bytes, plus their expected decoded forms) and breaking 10
+# tests in `crates/tests/core/encoding_matrix.rs` with `actual: "...\r\n"` vs
+# `expected: "...\n"`. Marking the whole tree as `binary` tells git to never
+# touch line endings, so the working copy matches the object store on every
+# platform. The path moved from `tests/fixtures/` to `crates/tests/fixtures/`
+# with the test-folder consolidation; this attr must follow.
+crates/tests/fixtures/** binary
