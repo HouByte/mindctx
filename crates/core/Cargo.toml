@@ -1,0 +1,64 @@
+[package]
+name = "mindctx-core"
+description = "mindctx internal library: indexing, retrieval, encoding, token accounting, and tree-sitter outlines. mindctx internal implementation; do not depend on it directly; API is unstable."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+# per-language symbol gating: all on by default so CLI/MCP work out of the box;
+# trimmed builds (e.g. minimized platform binaries) turn languages off per feature; each grammar costs a few MB.
+[features]
+default = [
+    "lang-rust",
+    "lang-go",
+    "lang-typescript",
+    "lang-python",
+    "lang-java",
+    "lang-cpp",
+]
+lang-rust = ["dep:tree-sitter-rust"]
+lang-go = ["dep:tree-sitter-go"]
+lang-typescript = ["dep:tree-sitter-typescript"]
+lang-python = ["dep:tree-sitter-python"]
+lang-java = ["dep:tree-sitter-java"]
+lang-cpp = ["dep:tree-sitter-cpp"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true } # MCP wire schemas publish core param structs directly
+thiserror = { workspace = true }
+home = { workspace = true }
+chrono = { workspace = true } # mtime rendering (glob details); no hand-rolled calendar math
+toml_edit = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+# rg-layer retrieval + tree-sitter outline + token accounting
+ignore = { workspace = true }
+grep-searcher = { workspace = true }
+grep-regex = { workspace = true }
+grep-matcher = { workspace = true }
+globset = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-rust = { workspace = true, optional = true }
+tree-sitter-go = { workspace = true, optional = true }
+tree-sitter-typescript = { workspace = true, optional = true }
+tree-sitter-python = { workspace = true, optional = true }
+tree-sitter-java = { workspace = true, optional = true }
+tree-sitter-cpp = { workspace = true, optional = true }
+tiktoken-rs = { workspace = true } # 0.12 ships o200k_base unconditionally (no per-encoding features)
+fancy-regex = { workspace = true }
+
+# encoding decision ladder: strict decoding + nomination detection
+encoding_rs = { workspace = true }
+chardetng = { workspace = true }
+
+# Inline #[cfg(test)] modules inside src/ use tempfile; consolidated integration
+# tests in crates/tests/ also use it. Re-import here so the in-crate unit tests keep
+# compiling after the integration-test consolidation.
+[dev-dependencies]
+tempfile = { workspace = true }
