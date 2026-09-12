@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+  push:
+    tags: ["v*"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -75,11 +77,34 @@ jobs:
             exit 1
           fi
 
+  # Lint the install/uninstall scripts (bash + PowerShell). Gated to release so it
+  # does not run (or block) on PRs that do not touch the scripts.
+  lint-install-scripts:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: ShellCheck (bash)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck scripts/install.sh scripts/uninstall.sh
+      - name: PowerShell AST parse
+        run: |
+          pwsh -NoProfile -Command '
+            foreach ($f in @("scripts/install.ps1", "scripts/uninstall.ps1")) {
+              $tokens = $null; $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$tokens, [ref]$errors) | Out-Null
+              if ($errors.Count -ne 0) { Write-Error "$f has $($errors.Count) parse errors"; exit 1 }
+            }
+          '
+
   # End-to-end npm install verification. Verdaccio on localhost:4873
   # stands in for the npm registry; the staged dist carries the real release
   # binary for the CI platform and dummies for the rest. Runs after the fast
   # gates so the heavier build + registry dance is not spent on a red tree.
   install-smoke:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [fmt, clippy, test, deny, comment-language]
     runs-on: ubuntu-latest
     env:
