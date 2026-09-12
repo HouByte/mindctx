@@ -96,24 +96,48 @@ jobs:
 
   test:
     needs: changes
-    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true')
+    # Deliberately NOT gated at job level like the jobs around it. A matrix job
+    # skipped that way reports a single check named after the job (`test`), not
+    # the per-OS `test (<os>)` names branch protection requires — the required
+    # checks would then never report and every pull request would block. Gating
+    # the steps keeps the check names identical whether or not work is done.
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - id: scope
+        name: Resolve scope
+        shell: bash
+        env:
+          NEEDS_RESULT: ${{ needs.changes.result }}
+          RUST_CHANGED: ${{ needs.changes.outputs.rust }}
+        run: |
+          set -euo pipefail
+          # A failed scope resolver runs the gate rather than skipping it.
+          if [ "$NEEDS_RESULT" != "success" ] || [ "$RUST_CHANGED" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.scope.outputs.run == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - if: steps.scope.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - if: steps.scope.outputs.run == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       # cli_mcp_roundtrip spawns `mindctx serve` as a subprocess. The CLI crate
       # has only [[bin]] (no [lib]), so it cannot enter the test dep graph as a
       # library crate and `cargo test --workspace` alone does not build the bin
       # on a fresh checkout — leading to ENOENT on every cli_mcp_roundtrip test
       # since the crates/tests/ consolidation. Run a workspace build first so
       # target/<profile>/mindctx is populated before the tests spawn it.
-      - run: cargo build --workspace
-      - run: cargo test --workspace
+      - if: steps.scope.outputs.run == 'true'
+        run: cargo build --workspace
+      - if: steps.scope.outputs.run == 'true'
+        run: cargo test --workspace
 
   deny:
     needs: changes
