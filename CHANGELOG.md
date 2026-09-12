@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0]
+
 ### Removed
 
 - `mindctx apply` / `mindctx unapply` subcommands and the `core::control` module; host config init moves to the install/uninstall scripts
