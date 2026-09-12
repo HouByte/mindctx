@@ -136,7 +136,9 @@ fn packaged_binary_name(target: &str) -> &'static str {
 // release <version> --tag-msg <msg> [--no-verify] [--allow-dirty]
 // ---------------------------------------------------------------------------
 
-// Bump the workspace and every package version, then commit and tag locally.
+// Bump the workspace and every package version, then commit. On main the commit
+// is also tagged locally; on a `release/*` branch the tag is left to be created
+// on main after the merge, since the commit is not on main yet.
 fn release(args: &[String]) {
     let mut version: Option<String> = None;
     let mut tag_msg: Option<String> = None;
@@ -202,10 +204,14 @@ fn release(args: &[String]) {
         std::process::exit(1);
     }
 
+    // A release lands on main through a pull request, so the bump is prepared on
+    // a `release/*` branch and merged. Every other branch is still refused: a tag
+    // pointing outside main's history would publish a release main never had.
     let branch = current_git_branch();
-    if branch != "main" {
+    let on_main = branch == "main";
+    if !on_main && !branch.starts_with("release/") {
         eprintln!(
-            "xtask release: refusing to release from branch '{}' (must be 'main')",
+            "xtask release: refusing to release from branch '{}' (must be 'main' or 'release/*')",
             branch
         );
         std::process::exit(1);
@@ -320,14 +326,26 @@ fn release(args: &[String]) {
     );
     run_git_in(&root, "commit", &["-m", &subject, "-m", &body]);
 
-    run_git_in(&root, "tag", &["-a", &tag_name, "-m", &tag_msg]);
-
     println!();
-    println!("xtask release: tag {} created locally.", tag_name);
-    println!(
-        "xtask release: next step: git push origin main {}",
-        tag_name
-    );
+    if on_main {
+        run_git_in(&root, "tag", &["-a", &tag_name, "-m", &tag_msg]);
+        println!("xtask release: tag {} created locally.", tag_name);
+        println!(
+            "xtask release: next step: git push origin main {}",
+            tag_name
+        );
+    } else {
+        // No tag on a release branch: this commit is not on main yet, and a tag
+        // pushed before the merge would trigger a release built from a commit
+        // main never had. Tagging main after the merge also survives a rebase,
+        // which would have moved the commit and left a branch-created tag behind.
+        println!("xtask release: bump committed on {}.", branch);
+        println!("xtask release: next steps:");
+        println!("  1. open a pull request for {} and merge it", branch);
+        println!("  2. git switch main && git pull --ff-only");
+        println!("  3. git tag -a {} -m {:?}", tag_name, tag_msg);
+        println!("  4. git push origin {}", tag_name);
+    }
 }
 
 fn is_working_tree_clean() -> bool {
