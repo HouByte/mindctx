@@ -14,6 +14,18 @@ serves from your machine, respecting your `gitignore`.
 
 ## Install
 
+**One-line install (macOS / Linux / WSL):**
+```bash
+curl -fsSL https://mindctx.com/install.sh | bash
+```
+
+**One-line install (Windows PowerShell):**
+```powershell
+irm https://mindctx.com/install.ps1 | iex
+```
+
+Pin a version with `MINDCTX_VERSION=v0.1.0` (e.g. `curl -fsSL ... | MINDCTX_VERSION=v0.1.0 bash`, or `$env:MINDCTX_VERSION='v0.1.0'; irm ... | iex` on PowerShell).
+
 ```bash
 npm i -g mindctx                                         # npm
 cargo install mindctx                                    # crates.io
@@ -26,6 +38,64 @@ mindctx --version
 ```
 
 Then connect it to your agent (see [MCP setup](#mcp-setup)).
+
+### What install does
+
+Besides dropping the binary in `~/.local/bin`, the install script wires mindctx into every
+host it finds on `PATH`:
+
+| Step | Effect |
+|---|---|
+| MCP registration | `claude mcp add --scope user` / `codex mcp add` register mindctx as a user-scoped MCP server (`mindctx serve`, stdio) |
+| Agent prompt | The block in [`scripts/agent-prompt.md`](scripts/agent-prompt.md) is written to `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, wrapped in `<!-- mindctx:begin -->` / `<!-- mindctx:end -->` markers |
+| Runtime config | A `[core]` section wrapped in `# mindctx:begin:core` / `# mindctx:end:core` markers is written to `~/.mindctx/config.toml` |
+
+The prompt block is fetched from the same release tag as the binary, so it always matches the
+installed version. Hosts whose CLI is not on `PATH` are skipped, and only home-directory files
+are touched — project files are never modified.
+
+Every step is idempotent: re-running the installer replaces the mindctx blocks in place and
+leaves the rest of each file alone. MCP registration is best-effort (a failure prints a
+warning and the install continues); a failed prompt-template download stops the install with
+an error rather than half-configuring a host.
+
+### Manual setup
+
+The installer is a convenience, not a requirement. To wire mindctx in by hand:
+
+1. Register the server: `claude mcp add --scope user --transport stdio mindctx -- mindctx serve`,
+   `codex mcp add mindctx -- mindctx serve`, or edit the host config directly (see
+   [MCP setup](#mcp-setup)).
+2. Append the block in [`scripts/agent-prompt.md`](scripts/agent-prompt.md) to your agent's
+   instruction file (`~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`).
+3. Optionally create `~/.mindctx/config.toml` with a `[core]` section for runtime settings.
+
+To undo it, delete the block you appended, remove the entry with
+`claude mcp remove mindctx --scope user` / `codex mcp remove mindctx`, and delete any file left
+empty.
+
+### Uninstall
+
+**macOS / Linux / WSL:**
+```bash
+curl -fsSL https://mindctx.com/uninstall.sh | bash
+```
+
+Pass `--purge` to also delete `~/.mindctx/record/` (receipts and backups left by the removed
+`mindctx apply`), which is kept by default:
+`curl -fsSL https://mindctx.com/uninstall.sh | bash -s -- --purge`
+
+**Windows (PowerShell):**
+```powershell
+irm https://mindctx.com/uninstall.ps1 | iex
+```
+
+On PowerShell, pass `-Purge` by invoking the script rather than piping it:
+`& ([scriptblock]::Create((irm https://mindctx.com/uninstall.ps1))) -Purge`
+
+Uninstall reverses exactly what install created: it strips only its own marker blocks (removing
+a host file that ends up empty), asks the host CLIs to drop the mindctx entry, and deletes only
+its own binary. Anything else in those files is preserved.
 
 ## Why mindctx
 
@@ -72,6 +142,14 @@ Useful flags:
   surface: the model sees a single token-budgeted text page per call. `envelope` returns the
   complete envelope JSON for machine consumers (HTTP / IDE plugin / contract test).
 - `MINDCTX_WIRE` env var overrides `--wire` when the flag is absent.
+
+## Status and index
+
+Read-only helpers:
+
+- `status` — version, project root, run-dir presence, index status, retrieval corpus size.
+- `index` — corpus walk report (file count, top extensions, total bytes). Retrieval
+  queries the rg layer directly, so no prebuilt index is required.
 
 ## Contributing
 

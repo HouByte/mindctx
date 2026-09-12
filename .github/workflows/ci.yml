@@ -98,6 +98,10 @@ jobs:
               if ($errors.Count -ne 0) { Write-Error "$f has $($errors.Count) parse errors"; exit 1 }
             }
           '
+      - name: Behavioral smoke (bash)
+        run: bash scripts/test-install.sh
+      - name: Behavioral smoke (PowerShell)
+        run: pwsh -NoProfile -File scripts/test-install.ps1
 
   # End-to-end npm install verification. Verdaccio on localhost:4873
   # stands in for the npm registry; the staged dist carries the real release
