@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `mindctx apply` / `mindctx unapply` subcommands and the `core::control` module; host config init moves to the install/uninstall scripts
 
+### Added
+
+- **Distribution-time init**: install scripts register mindctx as an MCP server in detected hosts (`claude mcp add`, `codex mcp add`) and seed per-host agent-prompt markers; uninstall reverses precisely via host-CLI removal and marker strip.
+
 ## [0.1.0]
 
 ### Added

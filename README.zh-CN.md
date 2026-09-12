@@ -63,6 +63,54 @@ mindctx --version
 - `--wire text|envelope` — wire 呈现模式。`text`（默认）是 LLM 注入面：每次调用返回一个被 token 预算约束的文本页。`envelope` 返回完整 envelope JSON（HTTP / IDE 插件 / 契约测试等机器消费方）。
 - `MINDCTX_WIRE` 环境变量在没有 `--wire` 时生效。
 
+## 安装脚本做了什么
+
+一行安装（macOS / Linux / WSL）：
+
+```bash
+curl -fsSL https://mindctx.com/install.sh | bash
+```
+
+除把二进制放进 `~/.local/bin`，脚本还会给 `PATH` 上探测到的每个宿主接好：
+
+| 步骤 | 效果 |
+|---|---|
+| MCP 注册 | 用 `claude mcp add --scope user` / `codex mcp add` 把 mindctx 注册为用户级 MCP server（`mindctx serve`，stdio） |
+| Agent prompt | 把 [`scripts/agent-prompt.md`](scripts/agent-prompt.md) 的块写进 `~/.claude/CLAUDE.md` 与 `~/.codex/AGENTS.md`，用 `<!-- mindctx:begin -->` / `<!-- mindctx:end -->` 标记包裹 |
+| 运行配置 | 往 `~/.mindctx/config.toml` 写 `[core]` 段，用 `# mindctx:begin:core` / `# mindctx:end:core` 标记包裹 |
+
+prompt 块与二进制取自同一个 release tag，因此始终与所装版本一致。`PATH` 上没有的宿主直接跳过；只写 home 下的文件，绝不改动项目文件。
+
+每一步都幂等：重复安装只会原地替换 mindctx 自己的块，文件其余内容不动。MCP 注册是 best-effort（失败只打 warning，安装继续）；prompt 模板下载失败则明确报错退出，不会留下半配置的宿主。
+
+### 手动接入
+
+安装脚本只是便利，不是必须。手工接入：
+
+1. 注册 server：`claude mcp add --scope user --transport stdio mindctx -- mindctx serve`、`codex mcp add mindctx -- mindctx serve`，或直接改宿主配置（见 [MCP 接入](#mcp-接入)）
+2. 把 [`scripts/agent-prompt.md`](scripts/agent-prompt.md) 的块追加到 agent 的指令文件（`~/.claude/CLAUDE.md` 或 `~/.codex/AGENTS.md`）
+3. 可选：建 `~/.mindctx/config.toml`，写入 `[core]` 段
+
+撤销时删掉自己追加的块，用 `claude mcp remove mindctx --scope user` / `codex mcp remove mindctx` 移除条目，并删掉因此变空的文件。
+
+## 卸载
+
+```bash
+curl -fsSL https://mindctx.com/uninstall.sh | bash
+```
+
+加 `--purge` 会连同 `~/.mindctx/record/`（已移除的 `mindctx apply` 留下的 receipt 与备份）一起删除，默认保留：
+`curl -fsSL https://mindctx.com/uninstall.sh | bash -s -- --purge`
+
+卸载精确反转安装动作：只剥自己的标记块（剥完为空的宿主文件会删除）、通过宿主 CLI 移除 mindctx 条目、只删自己的二进制；文件里的其它内容一律保留。
+
+## 状态与索引
+
+只读辅助命令：
+
+- `status` — 版本、项目根、run 目录是否存在、索引状态、检索语料大小
+- `index` — 语料遍历报告（文件数、Top 扩展名、总字节数）。检索直接走 rg 层，无需预建索引
+
 ## 贡献
 
 构建、调试、发布说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
