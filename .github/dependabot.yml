@@ -1,0 +1,21 @@
+# Keeps the third-party actions in ci.yml and release.yml, which are pinned to
+# commit SHAs, from going stale: Dependabot reads the `# vN` comment beside each
+# pin to learn which ref is tracked and opens a PR that moves the SHA. Bumping
+# by hand is the alternative, and the usual failure mode of a SHA-pinned repo is
+# that nobody does it.
+#
+# dtolnay/rust-toolchain is pinned to the commit behind its `stable` branch
+# rather than a tag, because the action takes its toolchain name from the ref it
+# is called with. Dependabot may not recognise a branch-backed pin and skip it;
+# if it does, that one pin has to be moved by hand.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
