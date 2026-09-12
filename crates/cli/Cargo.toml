@@ -1,6 +1,6 @@
 [package]
 name = "mindctx"
-description = "mindctx CLI: apply/unapply/status/... + serve (MCP entry); crates.io name holding and cargo install entry"
+description = "mindctx CLI: serve (MCP entry) plus status/index inspection; crates.io name holding and cargo install entry"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

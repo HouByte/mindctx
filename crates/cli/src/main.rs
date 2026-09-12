@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! mindctx CLI: manual-entry subcommands (apply/unapply/status/index) plus
-//! `mindctx serve` (MCP stdio, 4 tools: search/glob/read/outline).
+//! mindctx CLI: `mindctx serve` (MCP stdio, 4 tools: search/glob/read/outline) plus
+//! the status/index inspection subcommands.
 
 use std::path::PathBuf;
 
@@ -30,33 +30,6 @@ enum Command {
         /// (complete envelope JSON for machine consumers). Overrides MINDCTX_WIRE.
         #[arg(long)]
         wire: Option<String>,
-    },
-    /// Write host config and bootstrap blocks: Codex/Claude Code MCP + AGENTS.md marker
-    Apply {
-        /// Host home directory (default: auto-detected from environment)
-        #[arg(long)]
-        home: Option<PathBuf>,
-        /// Set Claude Code MCP registration
-        #[arg(long, default_value_t = true)]
-        claude: bool,
-        /// Set Codex MCP registration
-        #[arg(long, default_value_t = true)]
-        codex: bool,
-        /// Set token budget (omitted if not specified)
-        #[arg(long)]
-        budget: Option<u64>,
-        /// Skip confirmation prompts
-        #[arg(short, long, default_value_t = false)]
-        yes: bool,
-    },
-    /// Cleanly remove what apply wrote
-    Unapply {
-        /// Host home directory (default: auto-detected from environment)
-        #[arg(long)]
-        home: Option<PathBuf>,
-        /// Skip confirmation prompt
-        #[arg(short, long, default_value_t = false)]
-        yes: bool,
     },
     /// Show index and connection status
     Status,
@@ -88,14 +61,6 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!(e))?;
             Ok(())
         }
-        Command::Apply {
-            home,
-            claude,
-            codex,
-            budget,
-            yes,
-        } => apply_cmd(home, claude, codex, budget, yes),
-        Command::Unapply { home, yes } => unapply_cmd(home, yes),
         Command::Status => status(),
         Command::Index => index_report(),
     }
@@ -113,131 +78,6 @@ fn resolve_wire_mode(explicit: Option<&str>) -> anyhow::Result<mindctx_core::wir
         }
     };
     mindctx_core::wire::resolve_mode(explicit, env.as_deref()).map_err(|e| anyhow::anyhow!(e))
-}
-
-/// Surface non-fatal planning observations (skipped files, left-alone modified files).
-fn print_warnings(changeset: &mindctx_core::control::ChangeSet) {
-    for warning in &changeset.warnings {
-        eprintln!("[mindctx] warning: {warning}");
-    }
-}
-
-/// Resolve home directory. PRODUCTION ONLY — in tests, an explicit path is always passed.
-fn resolve_home(home_arg: Option<PathBuf>) -> anyhow::Result<PathBuf> {
-    match home_arg {
-        Some(h) => Ok(h),
-        None => {
-            // PRODUCTION ONLY: auto-detect from environment
-            std::env::var("HOME")
-                .map(PathBuf::from)
-                .map_err(|_| anyhow::anyhow!("HOME not set and --home not provided"))
-        }
-    }
-}
-
-/// Apply command: install host configuration and AGENTS.md markers.
-fn apply_cmd(
-    home_arg: Option<PathBuf>,
-    claude: bool,
-    codex: bool,
-    budget: Option<u64>,
-    yes: bool,
-) -> anyhow::Result<()> {
-    let home = resolve_home(home_arg)?;
-    let project_root =
-        std::env::current_dir().map_err(|e| anyhow::anyhow!("project root unreachable: {e}"))?;
-    let binary_path =
-        std::env::current_exe().map_err(|e| anyhow::anyhow!("binary path unreachable: {e}"))?;
-
-    eprintln!("[mindctx] apply home: {}", home.display());
-    eprintln!("[mindctx] project root: {}", project_root.display());
-
-    let opts = mindctx_core::control::ApplyOpts {
-        claude,
-        codex,
-        budget,
-        yes,
-        binary_path,
-    };
-
-    let changeset = mindctx_core::control::plan_apply(&home, &project_root, &opts)
-        .map_err(|e| anyhow::anyhow!(e))?;
-
-    print_warnings(&changeset);
-
-    if changeset.files.is_empty() {
-        eprintln!("[mindctx] nothing to apply (idempotent - already applied)");
-        return Ok(());
-    }
-
-    // Show summary of changes (excluding receipt details)
-    let file_changes: Vec<_> = changeset
-        .files
-        .iter()
-        .filter(|c| {
-            !c.target
-                .to_string_lossy()
-                .contains(".mindctx/record/receipt")
-        })
-        .collect();
-    if !yes {
-        eprintln!("\nChanges to be applied:");
-        for fc in &file_changes {
-            eprintln!("  {} {}", fc.action_str(), fc.target.display());
-        }
-        eprint!("\nApply these changes? [y/N] ");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            eprintln!("[mindctx] cancelled");
-            return Ok(());
-        }
-    } else {
-        eprintln!("\nApplying {} changes...", file_changes.len());
-    }
-
-    mindctx_core::control::commit(&changeset).map_err(|e| anyhow::anyhow!(e))?;
-
-    eprintln!("[mindctx] apply complete");
-    Ok(())
-}
-
-/// Unapply command: restore files from backups and remove receipt. Unapply is destructive
-/// (whole-file restores, created-file deletes), so it asks for confirmation unless --yes.
-fn unapply_cmd(home_arg: Option<PathBuf>, yes: bool) -> anyhow::Result<()> {
-    let home = resolve_home(home_arg)?;
-
-    eprintln!("[mindctx] unapply home: {}", home.display());
-
-    let changeset = mindctx_core::control::plan_unapply(&home).map_err(|e| anyhow::anyhow!(e))?;
-
-    print_warnings(&changeset);
-
-    if changeset.files.is_empty() {
-        eprintln!("[mindctx] nothing to unapply (no receipt found)");
-        return Ok(());
-    }
-
-    if !yes {
-        eprintln!("\nUnapply will change:");
-        for fc in &changeset.files {
-            eprintln!("  {} {}", fc.action_str(), fc.target.display());
-        }
-        eprint!("\nUnapply these changes? [y/N] ");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        if !input.trim().eq_ignore_ascii_case("y") {
-            eprintln!("[mindctx] cancelled");
-            return Ok(());
-        }
-    }
-
-    eprintln!("Restoring {} files from backups...", changeset.files.len());
-
-    mindctx_core::control::commit(&changeset).map_err(|e| anyhow::anyhow!(e))?;
-
-    eprintln!("[mindctx] unapply complete");
-    Ok(())
 }
 
 /// Direct rg-layer query needs no prebuilt index; this command walks the corpus once and

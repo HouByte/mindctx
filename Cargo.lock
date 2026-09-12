@@ -751,7 +751,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tiktoken-rs",
- "toml_edit",
  "tree-sitter",
  "tree-sitter-cpp",
  "tree-sitter-go",

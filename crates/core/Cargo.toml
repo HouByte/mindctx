@@ -34,7 +34,6 @@ schemars = { workspace = true } # MCP wire schemas publish core param structs di
 thiserror = { workspace = true }
 home = { workspace = true }
 chrono = { workspace = true } # mtime rendering (glob details); no hand-rolled calendar math
-toml_edit = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 # rg-layer retrieval + tree-sitter outline + token accounting
