@@ -4,7 +4,6 @@
 
 pub mod budget;
 pub mod config;
-pub mod control;
 pub mod envelope;
 pub mod error;
 pub mod guard;

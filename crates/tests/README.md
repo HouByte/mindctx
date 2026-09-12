@@ -24,7 +24,7 @@ Layout:
   - `polyglot/` — 6-language micro-repository (rust/go/ts/python/java/cpp).
     Small, deterministic, no third-party deps, never compiled.
   - `encoding/` — encoding-decision ladder fixtures (utf-8, fallback, ambiguous).
-  - `host-config/`, `search/` — additional fixture families.
+  - `search/` — additional fixture families.
 
 Notes:
 
