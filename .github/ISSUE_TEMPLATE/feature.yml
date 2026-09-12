@@ -1,0 +1,44 @@
+name: Feature Request
+description: Propose a new feature or a change in behavior
+title: "[feat] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bug reports belong on the Bug Report template, not here.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      placeholder: |
+        Describe the gap or pain point. A concrete scenario is more useful than
+        an abstract idea.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      placeholder: |
+        What would you like to see? CLI flags, MCP tool changes, a new
+        subcommand, index corpus support, and so on.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: |
+        Workarounds you have tried, or other shapes the API could take.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      placeholder: |
+        Links to docs, prior discussions, related issues.

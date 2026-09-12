@@ -1,0 +1,4 @@
+# Blank issues are disabled so every report carries the structure of one of the
+# templates above. A blank issue is expensive to triage; making the structured
+# path the only path raises the quality of what arrives.
+blank_issues_enabled: false
