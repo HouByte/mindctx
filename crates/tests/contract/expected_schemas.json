@@ -33,7 +33,7 @@
         "type": "string"
       },
       "path": {
-        "description": "Root directory to search, project-relative; default: the project root.",
+        "description": "Root directory to search, project-relative or absolute; default: the project root.",
         "type": "string"
       },
       "pattern": {
@@ -67,7 +67,7 @@
         "type": "integer"
       },
       "path": {
-        "description": "File path (project-relative)",
+        "description": "File path (project-relative or absolute)",
         "type": "string"
       }
     },
@@ -106,7 +106,7 @@
               "type": "integer"
             },
             "path": {
-              "description": "Project-relative file path.",
+              "description": "Project-relative or absolute file path.",
               "type": "string"
             }
           },
@@ -201,7 +201,7 @@
         "type": "string"
       },
       "path": {
-        "description": "Target file or directory, project-relative; defaults to the project root.",
+        "description": "Target file or directory, project-relative or absolute; defaults to the project root.",
         "type": "string"
       },
       "pattern": {

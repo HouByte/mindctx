@@ -40,6 +40,14 @@ path = "core/encoding_matrix.rs"
 name = "outline"
 path = "core/outline.rs"
 
+[[test]]
+name = "path_resolution"
+path = "core/path_resolution.rs"
+
+[[test]]
+name = "index_walk"
+path = "core/index_walk.rs"
+
 # Dev-deps merged from crates/{core,mcp,cli} after per-crate tests/ dirs were
 # consolidated here.
 [dev-dependencies]

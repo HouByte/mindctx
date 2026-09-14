@@ -9,6 +9,7 @@ pub mod error;
 pub mod guard;
 
 pub mod index;
+mod pathconv;
 pub mod retrieve;
 pub mod symbol;
 

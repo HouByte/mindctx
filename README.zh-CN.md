@@ -58,6 +58,8 @@ mindctx --version
 
 `serve` 通过 stdio JSON-RPC 暴露四个工具。用 `--root /path/to/project` 指向项目根，或让它继承当前目录。项目根即检索语料（自动尊重 `gitignore`）。
 
+传给工具的路径不限于项目根：绝对路径、`~` 开头的路径、含 `..` 的形式都可解析到文件系统任意位置。在 WSL 内，Windows 形态的输入（`C:\Users\...`、`\\wsl$\...`）会自动转换。工具只读，但没有根目录沙箱——运行用户可读的文件都可达。
+
 常用参数：
 
 - `--wire text|envelope` — wire 呈现模式。`text`（默认）是 LLM 注入面：每次调用返回一个被 token 预算约束的文本页。`envelope` 返回完整 envelope JSON（HTTP / IDE 插件 / 契约测试等机器消费方）。

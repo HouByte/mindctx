@@ -76,7 +76,7 @@ pub struct SearchParams {
     /// Regex in Rust regex syntax: lookaround and backreferences are unavailable, and
     /// literal braces must be escaped.
     pub pattern: String,
-    /// Target file or directory, project-relative; defaults to the project root.
+    /// Target file or directory, project-relative or absolute; defaults to the project root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// File globs to filter by; a leading `!` marks an exclusion and exclusions always
@@ -266,7 +266,7 @@ pub fn search_with_budget(root: &Path, params: &SearchParams, budget: u64) -> Re
     // --- target resolution and parameter/target mismatch errors (frozen strings) ---
     let target = match params.path.as_deref() {
         None => root.to_path_buf(),
-        Some(rel) => index::resolve_in_root(root, rel)?,
+        Some(rel) => index::resolve_path(root, rel)?,
     };
     if !target.exists() {
         return Err(Error::Config(format!(
@@ -322,8 +322,13 @@ pub fn search_with_budget(root: &Path, params: &SearchParams, budget: u64) -> Re
     // The search root itself must be reachable (checked above); an unreachable subtree
     // only narrows the candidate set, so a zero-candidate walk still returns a
     // zero-result page that carries the skip report instead of failing whole.
-    let (candidates, traversal_skips) =
-        collect_candidates(&target, single_file_target, glob.as_ref(), types.as_ref())?;
+    let (candidates, traversal_skips) = collect_candidates(
+        &target,
+        root,
+        single_file_target,
+        glob.as_ref(),
+        types.as_ref(),
+    )?;
 
     // --- pagination state ---
     let mode = params.output_mode;
@@ -378,7 +383,7 @@ pub fn search_with_budget(root: &Path, params: &SearchParams, budget: u64) -> Re
     };
 
     for candidate in &candidates {
-        let rel = candidate.rel_display.clone();
+        let rel = traversal::display_path(root, candidate);
         let snapshot = match snapshot::Snapshot::open(&candidate.path, ToolKind::Search) {
             Ok(snapshot) => snapshot,
             Err(error @ Error::FileChanged { .. }) => {
@@ -646,6 +651,7 @@ fn decode_candidate<'a>(
 /// through the glob and type filters.
 fn collect_candidates(
     target: &Path,
+    server_root: &Path,
     single_file_target: bool,
     glob: Option<&PathGlobFilter>,
     types: Option<&ignore::types::Types>,
@@ -669,7 +675,8 @@ fn collect_candidates(
         }
         return Ok((Vec::new(), Vec::new()));
     }
-    let (mut candidates, skips) = traversal::collect(target, &traversal::TraversalPolicy::Search)?;
+    let (mut candidates, skips) =
+        traversal::collect(target, server_root, &traversal::TraversalPolicy::Search)?;
     traversal::order_search(&mut candidates);
     candidates.retain(|candidate| passes_filters(candidate, glob, types));
     Ok((candidates, skips))

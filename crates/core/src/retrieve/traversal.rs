@@ -54,6 +54,7 @@ pub enum TraversalPolicy {
 /// each becomes `SkipDetail { path, reason: "unreachable: {err}" }` (frozen format).
 pub fn collect(
     root: &Path,
+    server_root: &Path,
     policy: &TraversalPolicy,
 ) -> Result<(Vec<Candidate>, Vec<SkipDetail>), Error> {
     if !root.is_dir() {
@@ -69,7 +70,7 @@ pub fn collect(
             Ok(entry) => entry,
             // One unreachable entry (permission, vanished mid-walk) is reported, not fatal.
             Err(err) => {
-                skips.push(skip_detail_for(root, &err));
+                skips.push(skip_detail_for(root, server_root, &err));
                 continue;
             }
         };
@@ -159,6 +160,18 @@ fn rel_display(root: &Path, path: &Path) -> String {
     rel.to_string_lossy().replace('\\', "/")
 }
 
+/// Output path for one candidate: the target-relative `rel_display` while the
+/// candidate sits under the server root (frozen in-root wire format); the
+/// absolute as-walked path once it lies outside, so a returned outside path
+/// re-resolves to the same file through `resolve_path`.
+pub fn display_path(server_root: &Path, candidate: &Candidate) -> String {
+    if candidate.path.strip_prefix(server_root).is_ok() {
+        candidate.rel_display.clone()
+    } else {
+        candidate.path.to_string_lossy().replace('\\', "/")
+    }
+}
+
 /// Best-effort path attribution for a walker error (`ignore::Error` has no path accessor;
 /// the walker wraps IO failures in `WithPath`/`WithDepth`).
 fn error_path(err: &ignore::Error) -> Option<&Path> {
@@ -176,9 +189,12 @@ fn error_path(err: &ignore::Error) -> Option<&Path> {
 /// attributable (bare `Io`/`Glob` errors without a `WithPath` wrapper), the detail points at the
 /// traversal root itself: an empty relative path would render a confusing skip line, and the root
 /// is the most useful locator the error still gives us.
-fn skip_detail_for(root: &Path, err: &ignore::Error) -> SkipDetail {
+fn skip_detail_for(root: &Path, server_root: &Path, err: &ignore::Error) -> SkipDetail {
     let path = match error_path(err) {
-        Some(path) => rel_display(root, path),
+        // Same inside/outside rule as result paths: a skip locator outside the
+        // server root renders absolute so it re-resolves to the same entry.
+        Some(path) if path.strip_prefix(server_root).is_ok() => rel_display(root, path),
+        Some(path) => path.to_string_lossy().replace('\\', "/"),
         None => root.display().to_string(),
     };
     SkipDetail {
@@ -243,7 +259,7 @@ mod tests {
     #[test]
     fn search_includes_dotfiles_and_honors_gitignore() {
         let (_tmp, root) = fixture(true);
-        let (cands, skips) = collect(&root, &TraversalPolicy::Search).unwrap();
+        let (cands, skips) = collect(&root, &root, &TraversalPolicy::Search).unwrap();
         let mut got = rels(&cands);
         got.sort_unstable();
         assert_eq!(
@@ -262,11 +278,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join(".git");
         write(&root, "HEAD", "ref: refs/heads/main");
-        let (cands, skips) = collect(&root, &TraversalPolicy::Search).unwrap();
+        let (cands, skips) = collect(&root, &root, &TraversalPolicy::Search).unwrap();
         assert_eq!(rels(&cands), ["HEAD"], "depth-0 root is never pruned");
         assert!(skips.is_empty());
         // The depth-0 exception holds for glob too (all glob modes share the prune).
         let (cands, skips) = collect(
+            &root,
             &root,
             &TraversalPolicy::Glob {
                 filter_mode: GlobFilterMode::Ignore,
@@ -282,7 +299,7 @@ mod tests {
     #[test]
     fn search_gitignore_applies_outside_a_git_repo() {
         let (_tmp, root) = fixture(false);
-        let (cands, skips) = collect(&root, &TraversalPolicy::Search).unwrap();
+        let (cands, skips) = collect(&root, &root, &TraversalPolicy::Search).unwrap();
         let got = rels(&cands);
         assert!(
             !got.contains(&"ignored.rs"),
@@ -302,6 +319,7 @@ mod tests {
     fn glob_ignore_mode_honors_gitignore_and_prunes_git() {
         let (_tmp, root) = fixture(true);
         let (cands, _) = collect(
+            &root,
             &root,
             &TraversalPolicy::Glob {
                 filter_mode: GlobFilterMode::Ignore,
@@ -337,6 +355,7 @@ mod tests {
         write(&root, ".ignore", "never_listed.rs\n");
         let (cands, _) = collect(
             &root,
+            &root,
             &TraversalPolicy::Glob {
                 filter_mode: GlobFilterMode::All,
             },
@@ -367,7 +386,7 @@ mod tests {
         std::os::unix::fs::symlink(root.join("missing.rs"), root.join("broken.rs")).unwrap();
         std::os::unix::fs::symlink(root, root.join("dir_link")).unwrap();
 
-        let (cands, skips) = collect(root, &TraversalPolicy::Search).unwrap();
+        let (cands, skips) = collect(root, root, &TraversalPolicy::Search).unwrap();
         let got = rels(&cands);
         assert!(
             got.contains(&"link.rs"),
@@ -413,7 +432,7 @@ mod tests {
         write(&locked, "inner/deep.rs", "fn deep() {}");
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
 
-        let outcome = collect(root, &TraversalPolicy::Search);
+        let outcome = collect(root, root, &TraversalPolicy::Search);
         let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o755));
         let Ok((cands, skips)) = outcome else {
             // Mode bits are advisory here (e.g. running as root): this environment cannot
@@ -437,7 +456,7 @@ mod tests {
         let file = tmp.path().join("not_a_dir");
         fs::write(&file, "x").unwrap();
         assert!(matches!(
-            collect(&file, &TraversalPolicy::Search),
+            collect(&file, &file, &TraversalPolicy::Search),
             Err(Error::Config(_))
         ));
     }
@@ -453,7 +472,7 @@ mod tests {
             std::io::ErrorKind::PermissionDenied,
             "denied",
         ));
-        let detail = skip_detail_for(root, &err);
+        let detail = skip_detail_for(root, root, &err);
         assert_eq!(detail.path, root.display().to_string());
         assert!(
             detail.reason.starts_with("unreachable: denied"),

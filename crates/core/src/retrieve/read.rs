@@ -57,7 +57,7 @@ pub struct ReadParams {
 /// One batch read entry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct BatchEntry {
-    /// Project-relative file path.
+    /// Project-relative or absolute file path.
     pub path: String,
     /// 1-based line offset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,7 +133,7 @@ fn read_single(
     encoding: Option<&str>,
     budget: u64,
 ) -> Result<Envelope> {
-    let resolved = index::resolve_in_root(root, file_path)?;
+    let resolved = index::resolve_path(root, file_path)?;
     if resolved.is_dir() {
         return Err(Error::Config(format!(
             "Cannot read directory as text: {file_path}."
@@ -396,7 +396,7 @@ fn read_batch(
         // lexical normalization only — no symlink resolution, no case folding — so on a
         // case-insensitive filesystem two entries differing only in case are not
         // detected as duplicates even though they request the same interval.
-        let canonical = match index::resolve_in_root(root, &entry.path) {
+        let canonical = match index::resolve_path(root, &entry.path) {
             Ok(resolved) => resolved.to_string_lossy().to_string(),
             Err(_) => entry.path.clone(),
         };
@@ -534,7 +534,7 @@ fn collect_segment(root: &Path, entry: &BatchEntry, budget: u64) -> Segment {
         error: Some(message),
         ..blank.clone()
     };
-    let resolved = match index::resolve_in_root(root, &entry.path) {
+    let resolved = match index::resolve_path(root, &entry.path) {
         Ok(resolved) => resolved,
         Err(error) => return fail(error.to_string()),
     };

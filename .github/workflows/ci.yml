@@ -2,8 +2,6 @@ name: CI
 
 on:
   pull_request:
-  push:
-    tags: ["v*"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,8 +12,8 @@ env:
 
 jobs:
   # Resolves which change scopes a run covers, so the heavy jobs below can be
-  # skipped when nothing they check has changed. A tag push is a release and
-  # covers every scope.
+  # skipped when nothing they check has changed. A release pull request is the
+  # release and covers every scope.
   #
   # Scope filtering is deliberately NOT done with `on.pull_request.paths`: a
   # workflow that does not trigger reports no status at all, and main's branch
@@ -44,12 +42,13 @@ jobs:
         name: Resolve change scopes
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" != "pull_request" ]; then
-            # Release path: every tracked file counts as changed.
+          if [[ "$HEAD_REF" == release/* ]]; then
+            # A release pull request is the release: every tracked file counts as changed so
+            # no scope is skipped and the release gate runs in full.
             changed=$(git ls-files)
           else
             # Three-dot: the PR's own changes, ignoring what base gained since
@@ -139,6 +138,30 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         run: cargo test --workspace
 
+  # Exercises the WSL code paths (Windows-form input conversion, drive-mount
+  # probe) without a real WSL runtime: the WSL detector's highest-priority
+  # signal is the WSL_DISTRO_NAME environment variable, and the drive-base
+  # probe only needs /mnt/c to exist. With both present the whole suite runs
+  # in WSL mode — deterministic since the conversion predicate is parameterized
+  # on the WSL verdict. The gated `inside_wsl_*` integration test activates
+  # here instead of skipping as it does on the plain runner matrix.
+  wsl-path:
+    needs: changes
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.rust == 'true')
+    runs-on: ubuntu-latest
+    env:
+      WSL_DISTRO_NAME: Ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Provide the default drive mount point for the drive-base probe
+        run: sudo mkdir -p /mnt/c
+      - name: Build and test in WSL mode
+        run: |
+          cargo build --workspace
+          cargo test --workspace
+
   deny:
     needs: changes
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.deps == 'true')
@@ -173,8 +196,8 @@ jobs:
           fi
 
   # Lint and behaviorally exercise the install/uninstall scripts. Scoped to
-  # `scripts/**` so unrelated pull requests do not pay for it; a tag push is a
-  # release and still runs it.
+  # `scripts/**` so unrelated pull requests do not pay for it; a release pull
+  # request covers every scope and still runs it.
   install-scripts:
     needs: changes
     if: always() && (needs.changes.result != 'success' || needs.changes.outputs.scripts == 'true')
@@ -202,11 +225,11 @@ jobs:
 
   # End-to-end npm install verification. Verdaccio on localhost:4873
   # stands in for the npm registry; the staged dist carries the real release
-  # binary for the CI platform and dummies for the rest. Release-only: it
-  # exercises the published artifact rather than any particular source change,
-  # and it is the slowest gate in the file.
+  # binary for the CI platform and dummies for the rest. Gated to `release/*`
+  # pull requests: that is the release gate, and the artifact exercised here is
+  # exactly what the later `v*` tag only publishes. The slowest gate in the file.
   npm-package-smoke:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'pull_request' && startsWith(github.event.pull_request.head.ref, 'release/')
     needs: [fmt, clippy, test, deny, comment-language]
     runs-on: ubuntu-latest
     env:

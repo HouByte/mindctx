@@ -160,7 +160,7 @@ pub fn outline_source(source: &str, spec: &LangSpec) -> Result<Vec<Symbol>> {
 /// Read and outline one file in the project, producing the unified envelope. The caller
 /// resolves the budget at the process boundary (core never reads env).
 pub fn outline_with_budget(params: &OutlineParams<'_>, budget: u64) -> Result<Envelope> {
-    let resolved = index::resolve_in_root(params.root, params.path)?;
+    let resolved = index::resolve_path(params.root, params.path)?;
     let spec = super::detect(&resolved).ok_or_else(|| {
         Error::Config(format!(
             "unrecognized language (unsupported extension): {}",

@@ -719,7 +719,7 @@ dependencies = [
 
 [[package]]
 name = "mindctx"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "mindctx-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chardetng",
  "chrono",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "mindctx-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mindctx-core",
  "rmcp",
@@ -773,7 +773,7 @@ dependencies = [
 
 [[package]]
 name = "mindctx-tests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "mindctx-core",
  "mindctx-mcp",
@@ -1722,7 +1722,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "semver",

@@ -136,6 +136,12 @@ Add mindctx as an MCP server in your agent's config:
 `--root /path/to/project`, or let it inherit the current directory. The project root is the
 search corpus (`gitignore` respected).
 
+Paths handed to the tools are not confined to the root: absolute paths, `~`-prefixed
+paths, and `..`-normalized forms resolve anywhere on the filesystem. Inside WSL,
+Windows-form inputs (`C:\Users\...`, `\\wsl$\...`) are converted automatically. The
+tools stay read-only, but there is no root sandbox — the server can read any file the
+running user can.
+
 Useful flags:
 
 - `--wire text|envelope` — wire presentation mode. `text` (default) is the LLM injection

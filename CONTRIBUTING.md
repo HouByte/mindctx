@@ -36,7 +36,10 @@ tools over JSON-RPC interactively.
 
 ## Release
 
-Releases are tag-driven: pushing a `v*` tag triggers `.github/workflows/release.yml`.
+Releases are tag-driven: pushing a `v*` tag triggers `.github/workflows/release.yml`. The
+release itself lands through a `release/*` pull request, which runs the full CI gate — every
+scope, including the npm artifact smoke test — and green CI on that PR is the merge
+precondition. The tag afterwards only publishes.
 
 The `xtask` crate automates the pipeline:
 

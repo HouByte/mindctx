@@ -70,7 +70,7 @@ const INSTRUCTIONS_ENVELOPE: &str = "mindctx: local file tools — search, glob,
 /// struct carries only the caller-supplied fields.
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct OutlineRequest {
-    /// File path (project-relative)
+    /// File path (project-relative or absolute)
     pub path: String,
     /// Outline depth in levels (default 2)
     #[serde(default)]
@@ -270,7 +270,7 @@ impl MindctxServer {
     }
 
     #[tool(
-        description = "Structural outline of a source file: the function/class/module tree without pulling in the whole file. path is project-relative; depth caps how many skeleton levels come back (default 2). the final status line says Complete or Partial and carries the exact resume arguments; failures arrive as self-contained tool errors.",
+        description = "Structural outline of a source file: the function/class/module tree without pulling in the whole file. path is project-relative or absolute; depth caps how many skeleton levels come back (default 2). the final status line says Complete or Partial and carries the exact resume arguments; failures arrive as self-contained tool errors.",
         title = "File symbol outline",
         annotations(
             title = "File symbol outline",
