@@ -431,15 +431,28 @@ async fn tool_level_errors_are_is_error_results() {
         "tool-level errors go through isError: {result}"
     );
 
-    // Path escape: tool-level error.
+    // Global paths: an absolute file outside the server root reads successfully —
+    // resolution is lexical and unrestricted, so there is no escape rejection.
+    let outside = tempfile::tempdir().expect("outside tempdir");
+    let outside_file = outside.path().join("outside.txt");
+    std::fs::write(&outside_file, "GLOBAL_PATH_MARKER\n").expect("write outside file");
     let result = client
         .request(
             "tools/call",
-            json!({"name": "read", "arguments": {"file_path": "../../../etc/passwd"}}),
+            json!({"name": "read", "arguments": {"file_path": outside_file.display().to_string()}}),
         )
         .await
-        .expect("read with an escaping path");
-    assert_eq!(result["isError"], json!(true));
+        .expect("read an absolute path outside the root");
+    assert_eq!(
+        result["isError"],
+        json!(false),
+        "absolute paths outside the root must read: {result}"
+    );
+    let text = result["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("GLOBAL_PATH_MARKER"),
+        "the outside file's content must come back: {text}"
+    );
 
     // Invalid regex: tool-level error with the frozen recovery hint.
     let result = client

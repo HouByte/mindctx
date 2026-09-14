@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Global path inputs**: `search` / `glob` / `read` / `outline` accept absolute paths, `~` home expansion, and lexical `..`/`.` normalization — tool inputs are no longer confined to the project root
+- **WSL input conversion**: inside WSL, Windows-form paths (drive letters, backslashes, `\\wsl$` / `\\wsl.localhost` UNC prefixes) resolve onto their WSL mounts
+- **Backslash fallback (non-WSL)**: a path that misses on disk and contains `\` retries slash-normalized
+
+### Changed
+
+- Search/glob results outside the server root render as absolute paths, so every returned path re-resolves to the same file
+- MCP tool descriptions document path parameters as project-relative or absolute
+
+### Removed
+
+- The `path must be project-relative` and `must not escape the project root` rejections. mindctx is a local read-only tool; root confinement was never a security boundary and the README says so explicitly
+
 ## [0.2.0]
 
 ### Removed

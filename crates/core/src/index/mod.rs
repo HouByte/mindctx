@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Index layer: walker (gitignore-aware). Current surface — corpus enumeration for rg-layer queries +
-//! corpus access conventions (path resolution).
+//! path resolution for tool inputs (project-relative or absolute; see [`resolve_path`]).
 
 use std::path::{Component, Path, PathBuf};
 
 use crate::error::{Error, Result};
+use crate::pathconv;
 
 /// Per-file skip threshold: files above it are treated as generated/binary and excluded from the retrieval corpus.
 pub const MAX_FILE_SIZE: u64 = 1024 * 1024;
@@ -57,70 +58,88 @@ pub fn walk(root: &Path) -> Result<Vec<FileEntry>> {
     Ok(out)
 }
 
-/// Resolves a project-relative path to inside the project root: rejects absolute paths and `..` escapes.
-/// read/outline and other "fetch corpus by path" entry points all go through here, as the minimal hygiene line.
-pub fn resolve_in_root(root: &Path, rel: &str) -> Result<PathBuf> {
-    let trimmed = rel.trim_start_matches("./");
-    let rel_path = Path::new(trimmed);
-    if rel_path.is_absolute() {
-        return Err(Error::Config(format!(
-            "path must be project-relative, got an absolute path: {rel}"
-        )));
-    }
-    let mut resolved = root.to_path_buf();
-    for component in rel_path.components() {
-        match component {
-            Component::Normal(part) => resolved.push(part),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                return Err(Error::Config(format!(
-                    "path must not escape the project root (..): {rel}"
-                )));
-            }
-            _ => {
-                return Err(Error::Config(format!(
-                    "path contains an illegal component: {rel}"
-                )));
-            }
-        }
-    }
-    Ok(resolved)
+/// Resolves a caller-supplied path to an absolute [`PathBuf`]. Relative inputs join
+/// the (canonicalized, absolute) project root; absolute inputs, `~` forms, and —
+/// inside WSL — Windows-form inputs resolve to anywhere on the filesystem. `.` and
+/// `..` are normalized lexically: `..` pops at most to the filesystem root and never
+/// escapes above it. No canonicalization and no symlink following: the result is the
+/// pure lexical join. read/outline/search/glob "fetch by path" entry points all go
+/// through here, as the single resolution choke point.
+pub fn resolve_path(root: &Path, input: &str) -> Result<PathBuf> {
+    // WSL conversion runs first: it turns Windows-form separators into slashes,
+    // so a `~\x` input becomes the expandable `~/x` form.
+    let normalized = pathconv::normalize_wsl_input(input);
+    let expanded = pathconv::expand_tilde(&normalized);
+    let primary = lexical_resolve(root, input, &expanded)?;
+    // Backslash fallback (non-WSL): Unix file names may legally contain `\`, so the
+    // slash-normalized retry runs only when the primary parse missed on disk. The
+    // existence probe is lazy — backslash-free inputs never stat.
+    let Some(retry) = pathconv::backslash_fallback(|| primary.exists(), &expanded) else {
+        return Ok(primary);
+    };
+    lexical_resolve(root, input, &retry)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
+/// Lexical component walk: `path` (already tilde/WSL-normalized) resolves against
+/// `root` when relative and replaces it when absolute. `input` is the original user
+/// string, kept for error messages. Purely lexical — no filesystem access.
+/// Precondition: `root` is canonicalized and absolute (callers canonicalize at
+/// startup); the relative branch joins it verbatim, without re-normalizing.
+fn lexical_resolve(root: &Path, input: &str, path: &str) -> Result<PathBuf> {
+    // No `./` trimming here: a leading `./` (or `.//`) makes `CurDir` the first
+    // component, which the walks below skip. Trimming instead would turn `.//a`
+    // into `/a` and silently flip it onto the absolute branch.
+    let rel = Path::new(path);
 
-    fn write(root: &Path, rel: &str, content: &str) {
-        let path = root.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, content).unwrap();
+    if !rel.is_absolute() {
+        // Relative inputs join the root buffer directly: push/pop over its
+        // components, no per-component re-walk of the root.
+        let mut resolved = root.to_path_buf();
+        for component in rel.components() {
+            match component {
+                Component::Normal(part) => resolved.push(part),
+                Component::CurDir => {}
+                // Clamped at the root's own anchor: `..` pops at most to the
+                // filesystem root (`pop` is a no-op there) and never above it.
+                Component::ParentDir => {
+                    resolved.pop();
+                }
+                // A drive prefix or a root separator in a relative path (e.g. the
+                // Windows drive-relative `C:foo`) has no relative meaning here.
+                _ => {
+                    return Err(Error::Config(format!(
+                        "path contains an illegal component: {input}"
+                    )));
+                }
+            }
+        }
+        return Ok(resolved);
     }
 
-    #[test]
-    fn walk_respects_gitignore_and_hidden_and_mindctx() {
-        let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path();
-        write(root, "src/main.rs", "fn main() {}");
-        write(root, "notes.md", "doc");
-        write(root, "generated.bin", &"x".repeat(1024));
-        write(root, ".gitignore", "generated.bin\n");
-        write(root, ".mindctx/index.db", "junk");
-        fs::write(root.join(".hidden"), "nope").unwrap();
+    // (drive prefix, anchored-at-root, component stack)
+    let mut prefix: Option<std::ffi::OsString> = None;
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
 
-        let files = walk(root).unwrap();
-        let rels: Vec<&str> = files.iter().map(|f| f.rel.as_str()).collect();
-        assert_eq!(rels, ["notes.md", "src/main.rs"]);
+    for component in rel.components() {
+        match component {
+            Component::Prefix(p) => prefix = Some(p.as_os_str().to_os_string()),
+            Component::RootDir => {}
+            Component::CurDir => {}
+            Component::ParentDir => {
+                // No-op once the filesystem root is reached: `..` never escapes above it.
+                parts.pop();
+            }
+            Component::Normal(part) => parts.push(part.to_os_string()),
+        }
     }
 
-    #[test]
-    fn resolve_rejects_escape_and_absolute() {
-        let root = Path::new("/tmp/proj");
-        assert!(resolve_in_root(root, "src/main.rs").is_ok());
-        assert!(resolve_in_root(root, "./src/main.rs").is_ok());
-        assert!(resolve_in_root(root, "../outside").is_err());
-        assert!(resolve_in_root(root, "/etc/passwd").is_err());
-        assert!(resolve_in_root(root, "a/../../b").is_err());
+    let mut resolved = PathBuf::new();
+    if let Some(p) = prefix {
+        resolved.push(p);
     }
+    resolved.push(std::path::MAIN_SEPARATOR.to_string());
+    for part in parts {
+        resolved.push(part);
+    }
+    Ok(resolved)
 }

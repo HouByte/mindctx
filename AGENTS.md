@@ -44,7 +44,7 @@ This table is the source of truth. New code must follow it without re-debate.
 ## Development workflow
 
 - **PR with rebase-merge**: changes land through a pull request; the GitHub "Rebase and merge" button fast-forwards `main` to the PR head, keeping history linear.
-- **CI on PR only**: `ci.yml` triggers on `pull_request`. The PR is the merge gate — branch protection requires CI to be green before the merge button is enabled, so a failing PR can't land. Under rebase-merge the merged commit is the PR head unchanged, so a second CI run on the merge is unnecessary.
+- **CI on PR only**: `ci.yml` triggers on `pull_request`. The PR is the merge gate — branch protection requires CI to be green before the merge button is enabled, so a failing PR can't land. A `release/*` pull request is the release gate: it counts every file as changed, so every scope runs, including the npm artifact smoke test. The `v*` tag that follows only publishes. Under rebase-merge the merged commit is the PR head unchanged, so a second CI run on the merge is unnecessary.
 
 ## Engineering discipline (violations get reverted)
 
@@ -58,6 +58,7 @@ This table is the source of truth. New code must follow it without re-debate.
 8. **Pre-commit must be green**: fmt + clippy `-D warnings` + test (lefthook pre-commit hook).
 9. **No Chinese in source files** (enforced by the `comment-language` CI job — see below); comments, error text, and protocol strings must be English.
 10. **Docs are current-state truth, not a journal**: READMEs and this file state only what is still true — current facts, in-force decisions, open gates. No date-stamped history ("landed on …", "retired on …", "decided on …") and no internal task/issue IDs: the timeline is git history, and provenance is cited as a tag/commit/branch, never a calendar date or a tracker ID. A day-by-day work log, if needed, lives outside the repo, never inside.
+11. **Test layering**: unit tests cover private/internal logic only (private fns, private mods, `pub(crate)` items) and live in a dedicated sibling test file (`src/<mod>/tests.rs`, wired by a one-line `#[cfg(test)] mod tests;` stub) — never embedded inside the source file. Behavior of the public API belongs in `crates/tests/{core,contract}`, registered in `crates/tests/Cargo.toml`. A public-API test found in core sources is debt: move it out; a test block embedded in a source file is debt: extract it.
 
 ## CI guard: comment-language
 

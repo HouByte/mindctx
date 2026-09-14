@@ -13,7 +13,7 @@ use crate::envelope::{Envelope, Page, SkipDetail, SkipReport, Terminal};
 use crate::error::{Error, Result};
 use crate::retrieve::glob_args::GlobArgs;
 use crate::retrieve::grep_filter::PathGlobFilter;
-use crate::retrieve::traversal::{self, Candidate, TraversalPolicy};
+use crate::retrieve::traversal::{self, Candidate, TraversalPolicy, display_path};
 use crate::tokenize::count_tokens;
 
 /// Which ignore sources apply during a glob traversal.
@@ -62,7 +62,7 @@ pub struct GlobParams {
     /// Glob pattern(s) to match (array published, accepts a bare string).
     #[schemars(with = "Vec<String>")]
     pub pattern: GlobArgs,
-    /// Root directory to search, project-relative; default: the project root.
+    /// Root directory to search, project-relative or absolute; default: the project root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// `ignore` (default; honors `.ignore` + gitignore rules) | `all`.
@@ -144,7 +144,7 @@ fn glob_impl(root: &Path, params: &GlobParams, budget: u64, hard_cap: usize) -> 
     // --- target resolution ---
     let target = match params.path.as_deref() {
         None => root.to_path_buf(),
-        Some(rel) => crate::index::resolve_in_root(root, rel)?,
+        Some(rel) => crate::index::resolve_path(root, rel)?,
     };
     if !target.is_dir() {
         return Err(Error::Config(format!(
@@ -157,7 +157,7 @@ fn glob_impl(root: &Path, params: &GlobParams, budget: u64, hard_cap: usize) -> 
     let policy = TraversalPolicy::Glob {
         filter_mode: params.filter_mode,
     };
-    let (mut candidates, traversal_skips) = traversal::collect(&target, &policy)?;
+    let (mut candidates, traversal_skips) = traversal::collect(&target, root, &policy)?;
 
     // --- filter through glob patterns ---
     candidates.retain(|candidate| glob.admits(&candidate.rel_display));
@@ -198,7 +198,7 @@ fn glob_impl(root: &Path, params: &GlobParams, budget: u64, hard_cap: usize) -> 
     let page = &candidates[offset as usize..end as usize];
 
     // --- body-first budget fitting ---
-    let fitted = fit_page(page, params, offset, total, budget, &traversal_skips)?;
+    let fitted = fit_page(page, params, root, offset, total, budget, &traversal_skips)?;
 
     // --- assemble envelope ---
     assemble_envelope(fitted, budget)
@@ -238,6 +238,7 @@ struct FittedPage {
 fn fit_page(
     page: &[Candidate],
     params: &GlobParams,
+    server_root: &Path,
     offset: u64,
     total: u64,
     budget: u64,
@@ -258,8 +259,8 @@ fn fit_page(
         let body: String = page[..shown]
             .iter()
             .map(|c| match params.output_mode {
-                GlobOutput::Paths => c.rel_display.clone(),
-                GlobOutput::Details => render_details(c),
+                GlobOutput::Paths => display_path(server_root, c),
+                GlobOutput::Details => render_details(server_root, c),
             })
             .collect::<Vec<_>>()
             .join("\n");
@@ -332,11 +333,12 @@ fn skip_report_for(skips: &[SkipDetail], shown_details: usize) -> Option<SkipRep
 /// positionally instead of via `serde_json::json!` so the frozen key order
 /// `{"path","bytes","modified"}` holds even when serde_json's `preserve_order` feature
 /// is not enabled by the feature graph (standalone core builds sort keys alphabetically).
-fn render_details(candidate: &Candidate) -> String {
+fn render_details(server_root: &Path, candidate: &Candidate) -> String {
     let modified = format_systemtime(&candidate.mtime);
     format!(
         "{{\"path\":{},\"bytes\":{},\"modified\":{}}}",
-        serde_json::to_string(&candidate.rel_display).expect("string serialization infallible"),
+        serde_json::to_string(&display_path(server_root, candidate))
+            .expect("string serialization infallible"),
         candidate.size,
         serde_json::to_string(&modified).expect("string serialization infallible"),
     )
