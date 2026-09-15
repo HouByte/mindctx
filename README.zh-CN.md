@@ -9,10 +9,24 @@ mindctx 是一个 Rust 单二进制，以 MCP server 形式运行，给你的 co
 
 ## 安装
 
+**一行安装（macOS / Linux / WSL）：**
+```bash
+curl -fsSL https://mindctx.com/install.sh | bash
+```
+
+**一行安装（Windows PowerShell）：**
+```powershell
+irm https://mindctx.com/install.ps1 | iex
+```
+
+用 `MINDCTX_VERSION=v0.1.0` 锁定版本（如 `curl -fsSL ... | MINDCTX_VERSION=v0.1.0 bash`；PowerShell 用 `$env:MINDCTX_VERSION='v0.1.0'; irm ... | iex`）。
+
 ```bash
 npm i -g mindctx                                         # npm
 cargo install mindctx                                    # crates.io
 ```
+
+预构建二进制覆盖 macOS（x64 / arm64）、Linux x64（musl）、Windows x64；**Linux arm64 暂无预构建产物**（使用 `cargo install mindctx`）。
 
 验证：
 
@@ -65,6 +79,32 @@ mindctx --version
 - `--wire text|envelope` — wire 呈现模式。`text`（默认）是 LLM 注入面：每次调用返回一个被 token 预算约束的文本页。`envelope` 返回完整 envelope JSON（HTTP / IDE 插件 / 契约测试等机器消费方）。
 - `MINDCTX_WIRE` 环境变量在没有 `--wire` 时生效。
 
+## Agent prompt
+
+mindctx 有两层 prompt 机制：
+
+1. **Server instructions** 在 MCP 连接时自动下发（无需配置）。
+2. 可选的 **prompt 块** 教 agent *优先* 使用 mindctx 工具而非内建工具。
+
+```markdown
+<!-- mindctx:begin -->
+Code navigation: prefer the mindctx MCP tools (search / glob / read / outline) over built-in grep/glob/read — one budgeted call replaces repeated round-trips.
+
+- Cross-file questions → `search` (regex); file discovery → `glob`. Results are mtime-ordered, not ranked — judging relevance is your job.
+- `outline` before `read` on code files (rs / go / ts / py / java / c-family — other extensions skip it); either way, `read` with offset/limit ranges.
+- A `Partial` page is a cursor: resume only with the exact arguments its status line (or `next_call`) names.
+- Paths may be project-relative, absolute, `~`-prefixed, or contain `..` — no need to `cd` first.
+<!-- mindctx:end -->
+```
+
+安装脚本会自动追加此块（见下方步骤 2–3）。手动接入同理。
+
+| Host | File | How |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` (user) 或项目 `CLAUDE.md` | 追加此块 |
+| Codex | `~/.codex/AGENTS.md` (user) 或项目 `AGENTS.md` | 追加此块 |
+| 任意 AGENTS.md 兼容宿主 | 其 instruction 文件 | 追加此块 |
+
 ## 安装脚本做了什么
 
 一行安装（macOS / Linux / WSL）：
@@ -97,12 +137,21 @@ prompt 块与二进制取自同一个 release tag，因此始终与所装版本�
 
 ## 卸载
 
+**macOS / Linux / WSL:**
 ```bash
 curl -fsSL https://mindctx.com/uninstall.sh | bash
 ```
 
 加 `--purge` 会连同 `~/.mindctx/record/`（已移除的 `mindctx apply` 留下的 receipt 与备份）一起删除，默认保留：
 `curl -fsSL https://mindctx.com/uninstall.sh | bash -s -- --purge`
+
+**Windows (PowerShell):**
+```powershell
+irm https://mindctx.com/uninstall.ps1 | iex
+```
+
+在 PowerShell 上传 `-Purge` 时不能直接 pipe，需先把脚本内容取出再调用：
+`& ([scriptblock]::Create((irm https://mindctx.com/uninstall.ps1))) -Purge`
 
 卸载精确反转安装动作：只剥自己的标记块（剥完为空的宿主文件会删除）、通过宿主 CLI 移除 mindctx 条目、只删自己的二进制；文件里的其它内容一律保留。
 

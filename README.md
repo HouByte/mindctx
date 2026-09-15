@@ -26,6 +26,8 @@ irm https://mindctx.com/install.ps1 | iex
 
 Pin a version with `MINDCTX_VERSION=v0.1.0` (e.g. `curl -fsSL ... | MINDCTX_VERSION=v0.1.0 bash`, or `$env:MINDCTX_VERSION='v0.1.0'; irm ... | iex` on PowerShell).
 
+Prebuilt binaries cover macOS (x64 / arm64), Linux x64 (musl), and Windows x64; **Linux arm64 has no prebuilt artifact** (use `cargo install mindctx`).
+
 ```bash
 npm i -g mindctx                                         # npm
 cargo install mindctx                                    # crates.io
@@ -148,6 +150,32 @@ Useful flags:
   surface: the model sees a single token-budgeted text page per call. `envelope` returns the
   complete envelope JSON for machine consumers (HTTP / IDE plugin / contract test).
 - `MINDCTX_WIRE` env var overrides `--wire` when the flag is absent.
+
+## Agent prompt
+
+mindctx has a two-layer prompt mechanism:
+
+1. **Server instructions** are delivered automatically at MCP connect (no configuration needed).
+2. The optional **prompt block** below teaches an agent to *prefer* mindctx tools over built-in equivalents.
+
+```markdown
+<!-- mindctx:begin -->
+Code navigation: prefer the mindctx MCP tools (search / glob / read / outline) over built-in grep/glob/read — one budgeted call replaces repeated round-trips.
+
+- Cross-file questions → `search` (regex); file discovery → `glob`. Results are mtime-ordered, not ranked — judging relevance is your job.
+- `outline` before `read` on code files (rs / go / ts / py / java / c-family — other extensions skip it); either way, `read` with offset/limit ranges.
+- A `Partial` page is a cursor: resume only with the exact arguments its status line (or `next_call`) names.
+- Paths may be project-relative, absolute, `~`-prefixed, or contain `..` — no need to `cd` first.
+<!-- mindctx:end -->
+```
+
+The installer appends this block automatically (steps 2–3 above). Manual setup is the same procedure done by hand.
+
+| Host | File | How |
+|---|---|---|
+| Claude Code | `~/.claude/CLAUDE.md` (user) or project `CLAUDE.md` | append the block |
+| Codex | `~/.codex/AGENTS.md` (user) or project `AGENTS.md` | append the block |
+| any AGENTS.md-compatible host | its instruction file | append the block |
 
 ## Status and index
 
