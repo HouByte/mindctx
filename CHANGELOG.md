@@ -7,16 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1]
+
 ### Added
 
 - **Global path inputs**: `search` / `glob` / `read` / `outline` accept absolute paths, `~` home expansion, and lexical `..`/`.` normalization — tool inputs are no longer confined to the project root
 - **WSL input conversion**: inside WSL, Windows-form paths (drive letters, backslashes, `\\wsl$` / `\\wsl.localhost` UNC prefixes) resolve onto their WSL mounts
 - **Backslash fallback (non-WSL)**: a path that misses on disk and contains `\` retries slash-normalized
+- **Agent prompt block**: install scripts append a marker-delimited prompt block (search / glob / read / outline over built-in equivalents) to the host instruction file — Claude Code (`CLAUDE.md`), Codex (`AGENTS.md`), and any AGENTS.md-compatible host; the block also carries the path-flexibility rule so server instructions and the prompt block agree
+- **Path-flexibility rule** in server instructions and the agent prompt block: paths may be project-relative, absolute, `~`-prefixed, or contain `..` — no need to `cd` first
 
 ### Changed
 
 - Search/glob results outside the server root render as absolute paths, so every returned path re-resolves to the same file
 - MCP tool descriptions document path parameters as project-relative or absolute
+- **Installer hardening**: `install.sh` / `install.ps1` download the prompt template before the binary, then run `mindctx --version` after install to fail loudly on a broken binary; install path is centralized in `BIN_DIR` so PATH check and post-install verify resolve to one location; Linux script prefers `sha256sum` over `shasum` when available
 
 ### Removed
 
