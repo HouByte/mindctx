@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -17,8 +17,8 @@ authors = ["HouByte"]
 # Internal crates: version must stay in sync with [workspace.package].version (cargo publish
 # requires path deps to carry a version, and cargo-deny wildcards also reject versionless deps;
 # xtask verifies consistency).
-mindctx-core = { path = "crates/core", version = "0.2.0" }
-mindctx-mcp = { path = "crates/mcp", version = "0.2.0" }
+mindctx-core = { path = "crates/core", version = "0.2.1" }
+mindctx-mcp = { path = "crates/mcp", version = "0.2.1" }
 
 # Basics
 anyhow = "1"
