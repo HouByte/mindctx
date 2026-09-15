@@ -319,25 +319,44 @@ function Main {
     $installDir = Join-Path $env:LOCALAPPDATA 'Programs\mindctx'
     $platform = Get-Platform
     $version = Get-Version
-    $result = Get-Asset -Version $version -Platform $platform
-    Install-Binary -Result $result
 
-    if (-not (Test-PathInEnv)) {
-        Write-Output ""
-        Write-Output "NOTE: ${installDir} is not in your PATH."
-        Write-Output "Add it via System Properties > Environment Variables > Path (user) > Edit > New."
-        Write-Output "Restart your shell for PATH changes to take effect."
-    }
-
-    Register-Mcp
-
-    # Host configuration init, formerly `mindctx apply`'s job: the guidance block for each
-    # detected host plus the shared runtime config. The template is pinned to the version
-    # being installed, so the URL is built after Get-Version has run.
+    # Download the prompt template before the binary: a template failure must abort the
+    # install before any host file or binary is touched. The template is pinned to the
+    # version being installed, so the URL is built after Get-Version has run.
     $promptUrl = if ($env:MINDCTX_PROMPT_URL) { $env:MINDCTX_PROMPT_URL } else { "https://raw.githubusercontent.com/HouByte/mindctx/v${version}/scripts/agent-prompt.md" }
     $templatePath = Join-Path $env:TEMP ('mindctx-agent-prompt-' + [System.Guid]::NewGuid().ToString() + '.md')
-    Get-PromptTemplate -Url $promptUrl -Dest $templatePath
     try {
+        Get-PromptTemplate -Url $promptUrl -Dest $templatePath
+
+        $result = Get-Asset -Version $version -Platform $platform
+        Install-Binary -Result $result
+
+        # Verify the binary actually runs; fail loudly rather than silently installing a
+        # broken binary.
+        $binPath = Join-Path $installDir 'mindctx.exe'
+        if (-not (Test-Path $binPath) -or (Get-Item $binPath).Length -eq 0) {
+            Write-Error "mindctx binary not found after installation." -ErrorAction Stop
+            exit 1
+        }
+        try {
+            & $binPath --version 2>$null | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw }
+        } catch {
+            Write-Error "mindctx --version failed after installation. The binary may be incompatible with this system." -ErrorAction Stop
+            exit 1
+        }
+
+        if (-not (Test-PathInEnv)) {
+            Write-Output ""
+            Write-Output "NOTE: ${installDir} is not in your PATH."
+            Write-Output "Add it via System Properties > Environment Variables > Path (user) > Edit > New."
+            Write-Output "Restart your shell for PATH changes to take effect."
+        }
+
+        Register-Mcp
+
+        # Host configuration init, formerly `mindctx apply`'s job: the guidance block for
+        # each detected host plus the shared runtime config. The template is already on disk.
         $template = Read-TextFile -Path $templatePath
         Add-CoreConfig
         if (Get-Command claude -ErrorAction SilentlyContinue) {

@@ -13,6 +13,10 @@ PROMPT_END='<!-- mindctx:end -->'
 CORE_BEGIN='# mindctx:begin:core'
 CORE_END='# mindctx:end:core'
 
+# Single install location; every reference below (install, PATH check, post-install verify)
+# resolves through this variable.
+BIN_DIR="$HOME/.local/bin"
+
 # Release download base. Defaults to GitHub; point MINDCTX_RELEASE_BASE_URL at a mirror
 # (e.g. object storage) when GitHub is unreachable. The mirror must preserve the
 # /releases/download/vX.Y.Z/{asset,SHA256SUMS} and /releases/latest path layout.
@@ -81,7 +85,14 @@ download_and_verify() {
         x86_64)        asset="mindctx-x86_64-apple-darwin" ;;
       esac ;;
     Linux)
-      asset="mindctx-x86_64-unknown-linux-musl"
+      case "$arch" in
+        x86_64) asset="mindctx-x86_64-unknown-linux-musl" ;;
+        aarch64|arm64)
+          echo "No prebuilt Linux arm64 binary is available." >&2
+          echo "Install from source with: cargo install mindctx" >&2
+          exit 1
+          ;;
+      esac
       ;;
   esac
 
@@ -96,7 +107,13 @@ download_and_verify() {
     echo "Asset $asset not found in SHA256SUMS" >&2; exit 1
   fi
 
-  actual_hash=$(shasum -a 256 "$tmpdir/$asset" | cut -d' ' -f1)
+  actual_hash=$(
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum "$tmpdir/$asset" | cut -d' ' -f1
+    else
+      shasum -a 256 "$tmpdir/$asset" | cut -d' ' -f1
+    fi
+  )
   if [ "$actual_hash" != "$expected_hash" ]; then
     echo "SHA256 mismatch for $asset:" >&2
     echo "  expected: $expected_hash" >&2
@@ -110,15 +127,15 @@ download_and_verify() {
 install_binary() {
   local asset="$1"
   local tmpdir="$2"
-  local dest="$HOME/.local/bin/mindctx"
+  local dest="$BIN_DIR/mindctx"
 
-  mkdir -p "$HOME/.local/bin"
+  mkdir -p "$BIN_DIR"
   install -m 0755 "$tmpdir/$asset" "$dest"
   echo "Installed mindctx to $dest"
 }
 
 check_path() {
-  local dest="$HOME/.local/bin"
+  local dest="$BIN_DIR"
   local found=0
   case ":$PATH:" in
     *:"$dest":*) found=1 ;;
@@ -302,16 +319,28 @@ main() {
 
   platform=$(detect_platform)
   version=$(resolve_version)
+
+  # Download the prompt template before the binary: a template failure must abort the
+  # install before any host file or binary is touched.
+  local prompt_url="${MINDCTX_PROMPT_URL:-https://raw.githubusercontent.com/HouByte/mindctx/v${version}/scripts/agent-prompt.md}"
+  download_prompt_template "$prompt_url" "$tmpdir/agent-prompt.md"
+
   asset=$(download_and_verify "$version" "$platform" "$tmpdir")
   install_binary "$asset" "$tmpdir"
+
+  # Verify the binary actually runs; fail loudly rather than silently installing a broken
+  # binary (e.g. wrong arch with rosetta translation edge case).
+  if ! "$BIN_DIR/mindctx" --version >/dev/null 2>&1; then
+    echo "mindctx --version failed after installation." >&2
+    echo "The binary may be incompatible with this system." >&2
+    exit 1
+  fi
+
   check_path
   register_hosts
 
   # Host configuration init, formerly `mindctx apply`'s job: the guidance block for each
-  # detected host plus the shared runtime config. The template is pinned to the version being
-  # installed, so it is resolved after resolve_version has run.
-  local prompt_url="${MINDCTX_PROMPT_URL:-https://raw.githubusercontent.com/HouByte/mindctx/v${version}/scripts/agent-prompt.md}"
-  download_prompt_template "$prompt_url" "$tmpdir/agent-prompt.md"
+  # detected host plus the shared runtime config. The template is already on disk (above).
   write_core_config
   if command -v claude >/dev/null 2>&1; then
     upsert_prompt_block "$HOME/.claude/CLAUDE.md" "$tmpdir/agent-prompt.md"
