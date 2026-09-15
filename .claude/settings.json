@@ -15,10 +15,11 @@
       "Bash(git log*)",
       "Bash(git show*)",
       "Bash(git rev-parse*)",
-      "Bash(git push origin main)"
+      "Bash(git push origin *)"
     ],
     "deny": [
-      "Bash(git push --force*)"
+      "Bash(git push origin main*)",
+      "Bash(git push --force origin main*)"
     ]
   }
 }
